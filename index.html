@@ -1,0 +1,886 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Pauses du jour</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+/* Mise en page : un plan de travail vertical — équipe du jour, puis planning (tableau + frise horaire) */
+:root {
+  --bg: #F8F5F6;
+  --surface: #FFFFFF;
+  --ink: #24181F;
+  --muted: #6E5F67;
+  --line: #E6DCE1;
+  --accent: #9C2F4E;
+  --accent-ink: #FFFFFF;
+  --break: #1F7A80;
+  --meal: #D08A1E;
+  --work: #ECE4E8;
+  --warn: #B23A1F;
+  --warn-bg: #FBEDE8;
+  --ok: #2E7D4F;
+  --font-display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --font-body: "DM Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #18121A; --surface: #221A24; --ink: #F3E9EE; --muted: #B3A2AA; --line: #3A2D36;
+    --accent: #E07A98; --accent-ink: #24181F; --break: #4FB3B9; --meal: #E8A94A; --work: #33283A;
+    --warn: #F08A6C; --warn-bg: #3A2220; --ok: #6BC28F; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #18121A; --surface: #221A24; --ink: #F3E9EE; --muted: #B3A2AA; --line: #3A2D36;
+  --accent: #E07A98; --accent-ink: #24181F; --break: #4FB3B9; --meal: #E8A94A; --work: #33283A;
+  --warn: #F08A6C; --warn-bg: #3A2220; --ok: #6BC28F; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--ink);
+  font: 15px/1.5 var(--font-body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 24px 48px;
+}
+.wrap { max-width: 1180px; margin: 0 auto; display: grid; gap: 24px; }
+h1, h2 { font-family: var(--font-display); text-wrap: balance; margin: 0; letter-spacing: -0.01em; }
+h1 { font-size: 30px; line-height: 1.1; }
+h2 { font-size: 20px; }
+.muted { color: var(--muted); }
+.tnum { font-variant-numeric: tabular-nums; }
+
+header.top { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 16px; }
+header.top .sub { margin: 6px 0 0; color: var(--muted); }
+.datebox { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.datebox label { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+
+section.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 20px; display: grid; gap: 16px; min-width: 0; }
+.panel-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+button, .btn {
+  font: 500 14px/1 var(--font-body); color: var(--ink); background: transparent;
+  border: 1px solid var(--line); border-radius: 8px; padding: 9px 14px; cursor: pointer;
+}
+button:hover { border-color: var(--muted); }
+button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 700; }
+button.primary:hover { filter: brightness(1.08); }
+button.ghost { border-color: transparent; color: var(--muted); padding: 6px 8px; }
+button.ghost:hover { color: var(--warn); }
+button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+input, select {
+  font: 15px var(--font-body); color: var(--ink); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; min-width: 0;
+}
+input[type="time"] { font-variant-numeric: tabular-nums; }
+input.name { width: 100%; min-width: 120px; }
+
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; }
+th { text-align: left; font-size: 12px; font-weight: 500; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+td { padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+tr:last-child td { border-bottom: 0; }
+td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.chk { display: inline-flex; gap: 6px; align-items: center; white-space: nowrap; color: var(--muted); font-size: 14px; }
+
+.banner { background: var(--warn-bg); border-radius: 8px; padding: 10px 14px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; }
+.empty { color: var(--muted); padding: 12px 0; }
+
+.chip { display: inline-block; font-size: 12px; font-weight: 500; padding: 2px 8px; border-radius: 999px; white-space: nowrap; background: var(--work); color: var(--ink); }
+.chip.brk { background: color-mix(in srgb, var(--break) 18%, transparent); color: var(--break); }
+.chip.mgr { background: var(--accent); color: var(--accent-ink); }
+.chip.pin { background: transparent; border: 1px dashed var(--muted); color: var(--muted); }
+.warns { margin: 0; padding: 0; list-style: none; font-size: 13px; color: var(--warn); }
+.okmark { color: var(--ok); font-size: 13px; }
+select.b { border-color: color-mix(in srgb, var(--break) 50%, var(--line)); }
+select.m { border-color: color-mix(in srgb, var(--meal) 60%, var(--line)); }
+
+/* Frise horaire */
+.tl { min-width: 960px; display: grid; gap: 4px; }
+.tl-row { display: grid; grid-template-columns: 130px 1fr; align-items: center; gap: 10px; }
+.tl-name { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tl-track { position: relative; height: 26px; }
+.tl-head .tl-track { height: 18px; }
+.tick { position: absolute; top: 0; transform: translateX(-50%); font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.grid { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--line); }
+.seg { position: absolute; top: 4px; bottom: 4px; border-radius: 4px; }
+.seg.work { background: var(--work); }
+.seg.meal { background: var(--meal); color: #fff; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.prelev-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding-top: 4px; border-top: 1px solid var(--line); padding-block: 12px 0; }
+.ico-prelev { display: inline-block; width: 22px; height: 14px; vertical-align: -2px; border-radius: 3px; background: var(--ok); position: relative; flex: none; }
+.ico-prelev::after { content: ""; position: absolute; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px 0 0 -3px; border-radius: 50%; background: var(--surface); }
+.seg.task { color: #fff; font-size: 11px; font-weight: 600; overflow: hidden; white-space: nowrap; display: flex; align-items: center; justify-content: center; border-radius: 0; }
+.swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: middle; margin-right: 6px; }
+input.tlabel { width: 150px; }
+td:has(> .tlabel) { white-space: nowrap; }
+.seg.brk { background: var(--break); top: 1px; bottom: 1px; border-radius: 2px; z-index: 1; color: #fff; font-size: 9px; line-height: 1; font-weight: 700; font-variant-numeric: tabular-nums; display: flex; flex-direction: column; align-items: center; justify-content: center; white-space: nowrap; overflow: hidden; }
+.tl-track { height: 30px; }
+.cov .tl-track { height: 22px; }
+.cell { position: absolute; top: 0; bottom: 0; display: flex; align-items: center; justify-content: center; font-size: 11px; font-variant-numeric: tabular-nums; border-radius: 3px; }
+.cell.low { background: var(--warn-bg); color: var(--warn); font-weight: 700; }
+.legend { display: flex; flex-wrap: wrap; gap: 16px; font-size: 13px; color: var(--muted); }
+.legend span::before { content: ""; display: inline-block; width: 14px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; background: var(--c); }
+
+details.rules summary { cursor: pointer; font-family: var(--font-display); font-weight: 600; font-size: 18px; }
+.rules-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px 24px; margin-top: 16px; }
+.rules-grid label { display: flex; justify-content: space-between; align-items: center; gap: 12px; font-size: 14px; }
+.roster { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.roster .chip { display: inline-flex; align-items: center; gap: 4px; padding-right: 2px; }
+.roster .chip button { border: 0; padding: 2px 6px; font-size: 12px; color: var(--muted); }
+
+#toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 8px; font-size: 14px; max-width: calc(100% - 32px); }
+@media (max-width: 560px) { h1 { font-size: 24px; } section.panel { padding: 14px; } }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <div>
+      <h1>Pauses du jour</h1>
+      <p class="sub">Saisissez l'équipe présente et ses horaires : les pauses de 15 min et les repas se placent tout seuls.</p>
+    </div>
+    <div class="datebox">
+      <label for="day">Journée du</label>
+      <input type="date" id="day">
+      <button id="prevDay" type="button">Reprendre la dernière journée</button>
+    </div>
+  </header>
+
+  <section class="panel" aria-labelledby="h-team">
+    <div class="panel-head">
+      <h2 id="h-team">Équipe présente</h2>
+      <div class="actions">
+        <button id="addAll" type="button">Ajouter toute l'équipe habituelle</button>
+        <button id="addOne" type="button" class="primary">+ Ajouter une personne</button>
+      </div>
+    </div>
+    <div id="exampleBanner" class="banner" hidden>
+      <span>Ceci est un <strong>exemple</strong>. Remplacez les prénoms et horaires par ceux de votre équipe.</span>
+      <button id="clearExample" type="button">Vider pour commencer</button>
+    </div>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Prénom</th><th>Arrivée</th><th>Départ</th><th>Manager</th><th>Travail réel</th><th>Pauses dues</th><th>Repas</th><th></th></tr></thead>
+        <tbody id="staffBody"></tbody>
+      </table>
+      <p id="staffEmpty" class="empty" hidden>Personne pour l'instant. Ajoutez les personnes présentes aujourd'hui.</p>
+    </div>
+    <div class="prelev-row">
+      <label for="prelev"><span class="ico-prelev" aria-hidden="true"></span> <strong>Prélèvement du jour</strong></label>
+      <select id="prelev"></select>
+      <span class="muted" style="font-size:13px">Une seule personne par jour. Elle apparaît avec cette icône sur le PDF.</span>
+    </div>
+    <datalist id="rosterList"></datalist>
+  </section>
+
+  <section class="panel" aria-labelledby="h-plan">
+    <div class="panel-head">
+      <div>
+        <h2 id="h-plan">Planning des pauses</h2>
+        <p id="planStatus" class="muted" style="margin:4px 0 0"></p>
+      </div>
+      <div class="actions">
+        <button id="resetPlan" type="button">Tout recalculer</button>
+        <button id="pdf" type="button" class="primary">Générer le PDF (A4 paysage)</button>
+      </div>
+    </div>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Prénom</th><th>Horaire</th><th>Pause 15 min</th><th>Repas (1 h)</th><th>Pause 15 min</th><th>Contrôle</th></tr></thead>
+        <tbody id="planBody"></tbody>
+      </table>
+    </div>
+    <p class="muted" style="margin:0;font-size:13px">Vous pouvez changer une heure dans les listes : elle est alors gardée telle quelle (« modifié ») et le reste se réorganise autour.</p>
+    <div class="legend">
+      <span style="--c:var(--work)">Présence</span>
+      <span style="--c:var(--break)">Pause 15 min</span>
+      <span style="--c:var(--meal)">Repas 1 h</span>
+      <span style="--c:var(--warn-bg)">Peu de monde en boutique</span>
+    </div>
+    <div class="scroll"><div id="timeline" class="tl"></div></div>
+  </section>
+
+  <section class="panel" aria-labelledby="h-tasks">
+    <div class="panel-head">
+      <div>
+        <h2 id="h-tasks">Tâches du jour</h2>
+        <p class="muted" style="margin:4px 0 0">Arrivage, formation, bureau… Les pauses restent prioritaires : une tâche qui tombe sur une pause ou le repas est simplement interrompue.</p>
+      </div>
+      <div class="actions" id="taskQuick">
+        <button type="button" data-label="Arrivage">+ Arrivage</button>
+        <button type="button" data-label="Formation">+ Formation</button>
+        <button type="button" data-label="Bureau">+ Bureau</button>
+        <button type="button" data-label="" class="primary">+ Autre tâche</button>
+      </div>
+    </div>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Personne</th><th>Tâche</th><th>Début</th><th>Fin</th><th>Contrôle</th><th></th></tr></thead>
+        <tbody id="taskBody"></tbody>
+      </table>
+      <p id="taskEmpty" class="empty" hidden>Aucune tâche pour l'instant. Ajoutez-en une avec les boutons ci-dessus.</p>
+    </div>
+    <datalist id="taskPresets"></datalist>
+  </section>
+
+  <section class="panel">
+    <details class="rules">
+      <summary>Règles de calcul et équipe habituelle</summary>
+      <div class="rules-grid" id="rulesGrid"></div>
+      <div class="actions" style="margin-top:16px"><button id="resetRules" type="button">Rétablir les règles par défaut</button></div>
+      <div style="margin-top:20px">
+        <strong>Équipe habituelle</strong> <span class="muted" style="font-size:13px">(retenue automatiquement avec les derniers horaires saisis)</span>
+        <div id="roster" class="roster"></div>
+      </div>
+    </details>
+  </section>
+</div>
+<div id="toast" hidden></div>
+
+<script>
+"use strict";
+/* ---------- utilitaires ---------- */
+const $ = s => document.querySelector(s);
+const pad = n => String(n).padStart(2, "0");
+const toMin = v => { if (!v || !/^\d{1,2}:\d{2}/.test(v)) return NaN; const [h, m] = v.split(":").map(Number); return h * 60 + m; };
+const toHHMM = m => pad(Math.floor(m / 60)) + ":" + pad(m % 60);
+const fr = m => Math.floor(m / 60) + "h" + pad(m % 60);
+const ceilTo = (m, s) => Math.ceil(m / s) * s;
+const floorTo = (m, s) => Math.floor(m / s) * s;
+const uid = () => Math.random().toString(36).slice(2, 10);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
+  keys() { try { return Object.keys(localStorage); } catch (e) { return []; } }
+};
+const todayISO = () => { const d = new Date(); return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()); };
+const longDate = iso => { const s = new Date(iso + "T12:00:00").toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" }); return s.charAt(0).toUpperCase() + s.slice(1); };
+function toast(msg) { const t = $("#toast"); t.textContent = msg; t.hidden = false; clearTimeout(toast.h); toast.h = setTimeout(() => t.hidden = true, 3500); }
+
+/* ---------- règles ---------- */
+const DEFAULTS = {
+  seuil1: 220,            // 3h40 -> 1 pause de 15 min
+  seuil2: 440,            // 7h20 -> 2 pauses de 15 min (seuils sur le travail réel, repas déduit)
+  mealMinPresence: 360,   // repas dû à partir de 6h de présence
+  openerMealFrom: 690,    // 11h30 : premiers départs en repas
+  laterMealLatest: 840,   // 14h00 : dernier départ pour celles qui arrivent le matin
+  pmStartAfter: 720,      // 12h00 : arrivée « après-midi »
+  pmMealLatest: 900,      // 15h00 : dernier départ pour celles qui arrivent l'après-midi
+  minWorkBeforeMeal: 120, // travail minimum avant le repas (assoupli si impossible)
+  minWorkAfterMeal: 60,   // travail minimum après le repas
+  minWorkBeforeBreak: 60, // 1h de travail avant toute pause de 15 min
+  minWorkAfterBreak: 30,  // pas de pause dans la dernière demi-heure
+  pmBreakFrom: 930,       // 15h30 : pauses d'après-midi
+  gapMeal: 60             // écart souhaité entre une pause de 15 min et le repas
+};
+const RULES_UI = [
+  ["seuil1", "1 pause de 15 min dès (travail réel)"],
+  ["seuil2", "2 pauses de 15 min dès (travail réel)"],
+  ["mealMinPresence", "Pause repas due dès (présence)"],
+  ["openerMealFrom", "Premiers départs en repas"],
+  ["laterMealLatest", "Dernier départ repas (arrivée le matin)"],
+  ["pmStartAfter", "Arrivée « après-midi » à partir de"],
+  ["pmMealLatest", "Dernier départ repas (arrivée l'après-midi)"],
+  ["minWorkBeforeMeal", "Travail souhaité avant le repas"],
+  ["minWorkAfterMeal", "Travail minimum après le repas"],
+  ["minWorkBeforeBreak", "Travail minimum avant une pause 15 min"],
+  ["minWorkAfterBreak", "Pas de pause 15 min dans les dernières"],
+  ["pmBreakFrom", "Pauses de l'après-midi à partir de"],
+  ["gapMeal", "Écart souhaité pause 15 min / repas"]
+];
+
+/* ---------- état ---------- */
+let settings = Object.assign({}, DEFAULTS, store.get("pauses:settings", {}));
+let roster = store.get("pauses:roster", null);
+let day = todayISO();
+let staff = [], overrides = {}, tasks = [], prelev = "", isExample = false, results = [];
+const PRELEV_ICON = '<span class="ico-prelev" title="Prélèvement" aria-label="Prélèvement"></span>';
+function renderPrelev() {
+  if (prelev && !staff.some(p => p.id === prelev)) prelev = "";
+  const people = staff.filter(p => (p.name || "").trim());
+  $("#prelev").innerHTML = `<option value="">Personne</option>` +
+    people.map(p => `<option value="${p.id}"${p.id === prelev ? " selected" : ""}>${esc(p.name.trim())}</option>`).join("");
+}
+
+/* ---------- tâches ---------- */
+const TASK_PRESETS = ["Arrivage", "Formation", "Bureau", "Caisse", "Réassort", "Vitrine", "Inventaire"];
+const TASK_COLORS = ["#5B5FC7", "#8E4BA6", "#5E7D2A", "#2F6FA8", "#8A5A3C", "#B4507A"];
+const rgb = hex => [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16));
+function taskLabels() { // libellés distincts, dans l'ordre d'apparition
+  const seen = new Map();
+  for (const t of tasks) { const l = (t.label || "").trim(); if (l && !seen.has(l.toLowerCase())) seen.set(l.toLowerCase(), l); }
+  return [...seen.values()];
+}
+function taskColor(label) {
+  const i = taskLabels().map(l => l.toLowerCase()).indexOf((label || "").trim().toLowerCase());
+  return TASK_COLORS[Math.max(0, i) % TASK_COLORS.length];
+}
+// Morceaux de la tâche une fois retirés le repas et les pauses (les pauses restent prioritaires)
+function taskPieces(t, r) {
+  const a = Math.max(toMin(t.start), r.s), b = Math.min(toMin(t.end), r.e);
+  if (!(b > a)) return [];
+  const cuts = [...(r.meal != null ? [[r.meal, r.meal + 60]] : []), ...r.b.map(x => [x, x + 15])];
+  let pieces = [[a, b]];
+  for (const [c, d] of cuts) pieces = pieces.flatMap(([x, y]) => d <= x || c >= y ? [[x, y]] : [[x, c], [d, y]].filter(([u, v]) => v > u));
+  return pieces;
+}
+function taskWarnings(t) {
+  const r = results.find(x => x.id === t.pid), s = toMin(t.start), e = toMin(t.end), w = [];
+  if (!r) return ["Choisissez une personne avec des horaires"];
+  if (!isFinite(s) || !isFinite(e)) return ["Indiquez le début et la fin"];
+  if (e <= s) return ["La fin doit être après le début"];
+  if (s < r.s || e > r.e) w.push("Dépasse l'horaire de " + r.name + " (" + fr(r.s) + " – " + fr(r.e) + ")");
+  if (r.meal != null && r.meal < e && r.meal + 60 > s) w.push("Interrompue par le repas de " + fr(r.meal));
+  for (const b of r.b) if (b < e && b + 15 > s) w.push("Interrompue par la pause de " + fr(b));
+  for (const o of tasks) if (o !== t && o.pid === t.pid && toMin(o.start) < e && toMin(o.end) > s) { w.push("Chevauche « " + (o.label || "Tâche") + " »"); break; }
+  return w;
+}
+
+const EXAMPLE = () => [
+  ["Camille", "09:30", "17:30", true], ["Inès", "09:30", "18:30"], ["Sarah", "10:00", "19:00", true],
+  ["Léa", "11:00", "19:30"], ["Julie", "12:30", "20:00", true], ["Manon", "13:00", "20:00"]
+].map(([name, start, end, manager]) => ({ id: uid(), name, start, end, noMeal: false, manager: !!manager }));
+
+function loadDay() {
+  const d = store.get("pauses:day:" + day, null);
+  prelev = d ? d.prelev || "" : "";
+  if (d) { staff = d.staff || []; overrides = d.overrides || {}; tasks = d.tasks || []; isExample = false; }
+  else if (roster === null) {
+    staff = EXAMPLE(); overrides = {}; isExample = true;
+    tasks = [{ id: uid(), pid: staff[1].id, label: "Arrivage", start: "13:30", end: "15:30" },
+             { id: uid(), pid: staff[0].id, label: "Bureau", start: "14:00", end: "15:00" },
+             { id: uid(), pid: staff[3].id, label: "Formation", start: "17:00", end: "18:30" }];
+  }
+  else { staff = []; overrides = {}; tasks = []; isExample = false; }
+}
+function saveDay() {
+  if (isExample) return;
+  store.set("pauses:day:" + day, { staff, overrides, tasks, prelev });
+  roster = roster || [];
+  for (const p of staff) {
+    const n = (p.name || "").trim(); if (!n) continue;
+    const r = roster.find(x => x.name.toLowerCase() === n.toLowerCase());
+    if (r) { r.start = p.start; r.end = p.end; r.manager = !!p.manager; } else roster.push({ name: n, start: p.start, end: p.end, manager: !!p.manager });
+  }
+  roster.sort((a, b) => a.name.localeCompare(b.name, "fr"));
+  store.set("pauses:roster", roster);
+  renderRoster();
+}
+
+/* ---------- calcul ---------- */
+function maxConc(list, a, b) {
+  let max = 0;
+  for (let t = a; t < b; t += 15) { const c = list.filter(x => x.a < t + 15 && x.b > t).length; if (c > max) max = c; }
+  return max;
+}
+function mealWindow(p, S) {
+  const lastByEnd = floorTo(p.e - 60 - S.minWorkAfterMeal, 30);
+  const limit = p.s < S.pmStartAfter ? S.laterMealLatest : S.pmMealLatest;
+  const floorBase = p.s < S.pmStartAfter ? S.openerMealFrom : 0;
+  const tries = [...new Set([S.minWorkBeforeMeal, 90, 60].filter(v => v <= S.minWorkBeforeMeal))];
+  for (const before of tries) {
+    const from = Math.max(floorBase, ceilTo(p.s + before, 30)), to = Math.min(limit, lastByEnd);
+    if (from <= to) return { from, to };
+  }
+  // Impossible dans les règles : on prend le premier créneau possible (signalé dans le contrôle)
+  const from = Math.max(floorBase, ceilTo(p.s + 60, 30));
+  return { from, to: lastByEnd };
+}
+function requiredBreaks(p, S) {
+  return p.work >= S.seuil2 ? 2 : p.work >= S.seuil1 ? 1 : 0;
+}
+// Un manager ne peut pas être absent en même temps qu'un autre manager
+function mgrClash(p, abs, a, b) {
+  return abs.some(x => x.mgr && x.id !== p.id && x.a < b && x.b > a);
+}
+function placeBreaks(p, S, abs, strictMgr) {
+  const others = abs.filter(x => x.id !== p.id);
+  const absent = t => others.filter(x => x.a < t + 15 && x.b > t).length;
+  const lo = ceilTo(p.s + S.minWorkBeforeBreak, 15), hi = p.e - S.minWorkAfterBreak - 15;
+  const hasMeal = p.meal != null;
+  const mid = l => floorTo((l[0] + l[l.length - 1]) / 2, 15);
+  const pmPen = (t, l) => (t >= 720 && t < S.pmBreakFrom && l.some(x => x >= S.pmBreakFrom)) ? (S.pmBreakFrom - t) / 15 * 1.5 : 0;
+  const pick = (l, target) => { let best = null; for (const t of l) { const v = absent(t) * 4 + Math.abs(t - target) / 15 + pmPen(t, l); if (!best || v < best.v) best = { t, v }; } return best; };
+  const spread = l => { // deux pauses dans un même bloc, espacées d'au moins 1h
+    const span = l[l.length - 1] - l[0];
+    const a = pick(l.filter(t => t <= l[l.length - 1] - 75), l[0] + span / 3); if (!a) return l.length ? [pick(l, mid(l)).t] : [];
+    const b = pick(l.filter(t => t >= a.t + 75), l[0] + 2 * span / 3); return b ? [a.t, b.t] : [a.t];
+  };
+  const all = []; for (let t = lo; t <= hi; t += 15) if (!(strictMgr && mgrClash(p, abs, t, t + 15))) all.push(t);
+  if (!all.length) return [];
+  if (!hasMeal) return p.n === 1 ? [pick(all, mid(all)).t] : spread(all);
+  const gaps = [...new Set([S.gapMeal, 45, 30, 15].filter(g => g <= S.gapMeal && g >= 15))];
+  let before = [], after = [];
+  for (const g of gaps) {
+    before = all.filter(t => t + 15 <= p.meal - g);
+    after = all.filter(t => t >= p.meal + 60 + g);
+    if (p.n === 2 && before.length && after.length) return [pick(before, mid(before)).t, pick(after, mid(after)).t];
+    if (p.n === 1 && (before.length || after.length)) {
+      const c = [];
+      if (before.length) { const b = pick(before, mid(before)); b.v += before.length < after.length ? 2 : 0; c.push(b); }
+      if (after.length) { const a = pick(after, mid(after)); a.v += after.length < before.length ? 2 : 0; c.push(a); }
+      c.sort((x, y) => x.v - y.v); return [c[0].t];
+    }
+  }
+  // 2 pauses mais un seul côté du repas possible : au mieux, signalé dans le contrôle
+  const side = before.length >= after.length ? before : after;
+  return side.length ? spread(side) : [];
+}
+function validate(p, S, ppl) {
+  const w = [], m = p.meal;
+  if (p.manager) {
+    const mine = [...(m != null ? [[m, m + 60]] : []), ...p.b.map(t => [t, t + 15])];
+    for (const o of ppl) {
+      if (o === p || !o.manager) continue;
+      const theirs = [...(o.meal != null ? [[o.meal, o.meal + 60]] : []), ...o.b.map(t => [t, t + 15])];
+      if (mine.some(([a, b]) => theirs.some(([c, d]) => a < d && b > c))) w.push("Absente en même temps que " + o.name + " (manager)");
+    }
+  }
+  if (p.mealDue && m == null) w.push("Pas de pause repas");
+  if (m != null) {
+    if (m % 30) w.push("Départ repas pas sur une demi-heure");
+    if (m < p.s || m + 60 > p.e) w.push("Repas en dehors des horaires");
+    if (p.s < S.pmStartAfter && m < S.openerMealFrom) w.push("Repas avant " + fr(S.openerMealFrom));
+    const lim = p.s < S.pmStartAfter ? S.laterMealLatest : S.pmMealLatest;
+    if (m > lim) w.push("Repas après " + fr(lim));
+  }
+  if (p.b.length < p.n) w.push(p.n + " pause" + (p.n > 1 ? "s" : "") + " de 15 min due" + (p.n > 1 ? "s" : "") + ", " + p.b.length + " placée" + (p.b.length > 1 ? "s" : ""));
+  if (p.b.length > p.n) w.push("Pause de 15 min en trop");
+  for (const t of p.b) {
+    if (t < p.s || t + 15 > p.e) w.push("Pause de " + fr(t) + " en dehors des horaires");
+    else if (t < p.s + S.minWorkBeforeBreak) w.push("Pause de " + fr(t) + " avant 1h de travail");
+    if (m != null && t + 15 >= m && t <= m + 60) w.push("Pause de " + fr(t) + " collée au repas");
+  }
+  if (m != null && p.b.length === 2 && !(p.b[0] < m && p.b[1] > m)) w.push("Il faut une pause avant et une après le repas");
+  return w;
+}
+function computePlan() {
+  const S = settings;
+  const ppl = staff.map(p => ({ id: p.id, name: (p.name || "").trim() || "Sans prénom", s: toMin(p.start), e: toMin(p.end), noMeal: !!p.noMeal, manager: !!p.manager }))
+    .filter(p => isFinite(p.s) && isFinite(p.e) && p.e > p.s);
+  if (!ppl.length) return [];
+  const minStart = Math.min(...ppl.map(p => p.s));
+  const abs = [];
+  for (const p of ppl) {
+    p.presence = p.e - p.s; p.opener = p.s === minStart;
+    p.mealDue = !p.noMeal && p.presence >= S.mealMinPresence;
+    p.ov = overrides[p.id] || {}; p.meal = null; p.b = [];
+    if (p.ov.meal !== undefined) { p.meal = p.ov.meal; p.mealPinned = true; if (p.meal != null) abs.push({ id: p.id, a: p.meal, b: p.meal + 60, k: "m", mgr: p.manager }); }
+  }
+  // Pauses de 15 min modifiées à la main : connues avant de placer les repas
+  for (const p of ppl) {
+    if (p.ov.breaks !== undefined) { p.breaksPinned = true; p.b = [...p.ov.breaks].sort((a, b) => a - b); p.b.forEach(t => abs.push({ id: p.id, a: t, b: t + 15, k: "b", mgr: p.manager })); }
+  }
+  // Repas : par ordre d'arrivée, les premières arrivées prennent les premiers créneaux (un départ par demi-heure si possible)
+  const byStart = [...ppl].sort((a, b) => (a.s - b.s) || (a.e - b.e) || (b.manager - a.manager));
+  for (const p of byStart) {
+    if (p.mealPinned || !p.mealDue) continue;
+    const w = mealWindow(p, S), meals = abs.filter(x => x.k === "m");
+    const choose = strictMgr => {
+      let best = null;
+      for (let t = w.from; t <= w.to; t += 30) {
+        if (strictMgr && mgrClash(p, abs, t, t + 60)) continue;
+        const v = meals.filter(x => x.a === t).length * 1000 + (t - w.from) / 30 * 10 + maxConc(meals, t, t + 60);
+        if (!best || v < best.v) best = { t, v };
+      }
+      return best;
+    };
+    const best = (p.manager && choose(true)) || choose(false);
+    if (best) { p.meal = best.t; abs.push({ id: p.id, a: p.meal, b: p.meal + 60, k: "m", mgr: p.manager }); }
+  }
+  // Pauses de 15 min, calculées sur le temps de travail (présence moins le repas)
+  for (const p of ppl) { p.work = p.presence - (p.meal != null ? 60 : 0); p.n = requiredBreaks(p, S); }
+  for (const p of [...ppl].sort((a, b) => (b.manager - a.manager) || (a.s - b.s) || (a.e - b.e))) {
+    if (p.breaksPinned || !p.n) continue;
+    let b = p.manager ? placeBreaks(p, S, abs, true) : [];
+    if (b.length < p.n) b = placeBreaks(p, S, abs, false);
+    p.b = b.sort((x, y) => x - y);
+    p.b.forEach(t => abs.push({ id: p.id, a: t, b: t + 15, k: "b", mgr: p.manager }));
+  }
+  ppl.forEach(p => p.warnings = validate(p, S, ppl));
+  return ppl; // même ordre que la saisie dans « Équipe présente »
+}
+// Range les pauses en [colonne avant repas / matin, colonne après repas / après-midi]
+function slots(r) {
+  if (r.b.length !== 1) return [r.b[0] ?? null, r.b[1] ?? null];
+  const b = r.b[0], late = r.meal != null ? b > r.meal : b >= 720;
+  return late ? [null, b] : [b, null];
+}
+function coverage(rs, t) { // personnes en boutique sur le quart d'heure [t, t+15)
+  return rs.filter(p => p.s <= t && p.e >= t + 15 && !(p.meal != null && p.meal < t + 15 && p.meal + 60 > t) && !p.b.some(b => b < t + 15 && b + 15 > t)).length;
+}
+
+/* ---------- affichage ---------- */
+function renderStaff() {
+  $("#exampleBanner").hidden = !isExample;
+  $("#staffEmpty").hidden = staff.length > 0;
+  $("#staffBody").innerHTML = staff.map(p => `
+    <tr data-id="${p.id}">
+      <td><input class="name" id="n-${p.id}" list="rosterList" value="${esc(p.name || "")}" placeholder="Prénom" aria-label="Prénom"></td>
+      <td><input class="start" id="s-${p.id}" type="time" step="900" value="${esc(p.start || "")}" aria-label="Heure d'arrivée"></td>
+      <td><input class="end" id="e-${p.id}" type="time" step="900" value="${esc(p.end || "")}" aria-label="Heure de départ"></td>
+      <td><label class="chk"><input type="checkbox" class="mgr" id="g-${p.id}" ${p.manager ? "checked" : ""}> manager</label></td>
+      <td class="num pres"></td>
+      <td class="due"></td>
+      <td><label class="chk"><input type="checkbox" class="nomeal" id="m-${p.id}" ${p.noMeal ? "checked" : ""}> sans repas</label></td>
+      <td><button type="button" class="ghost del" aria-label="Retirer">Retirer</button></td>
+    </tr>`).join("");
+}
+function renderStaffInfo() {
+  for (const tr of document.querySelectorAll("#staffBody tr")) {
+    const p = staff.find(x => x.id === tr.dataset.id), r = results.find(x => x.id === tr.dataset.id);
+    tr.querySelector(".pres").innerHTML = r ? `<strong>${fr(r.work)}</strong> <span class="muted" style="font-size:12px">${r.meal != null ? "(" + fr(r.presence) + " − 1h repas)" : "(sans repas)"}</span>` : "—";
+    tr.querySelector(".due").innerHTML = r ? `<span class="chip brk">${r.n} × 15 min</span> ${r.mealDue || r.meal != null ? '<span class="chip">+ repas</span>' : ""}` : '<span class="muted">horaires à compléter</span>';
+  }
+}
+function opts(from, to, step, sel) {
+  let h = `<option value=""${sel == null ? " selected" : ""}>—</option>`;
+  for (let t = from; t <= to; t += step) h += `<option value="${t}"${t === sel ? " selected" : ""}>${fr(t)}</option>`;
+  return h;
+}
+function renderPlan() {
+  results = computePlan();
+  renderStaffInfo();
+  const nW = results.filter(r => r.warnings.length).length;
+  $("#planStatus").textContent = !results.length ? "Ajoutez au moins une personne avec ses horaires."
+    : nW ? `${results.length} personnes · ${nW} à vérifier` : `${results.length} personnes · toutes les règles sont respectées`;
+  $("#planBody").innerHTML = results.map(r => {
+    const sl = slots(r), bOpts = i => opts(ceilTo(r.s, 15), r.e - 15, 15, sl[i]);
+    const pinned = r.mealPinned || r.breaksPinned;
+    return `<tr data-id="${r.id}">
+      <td><strong>${esc(r.name)}</strong>${r.id === prelev ? " " + PRELEV_ICON : ""}${r.manager ? ' <span class="chip mgr">manager</span>' : ""}${r.opener ? ' <span class="chip">ouverture</span>' : ""}</td>
+      <td class="num">${fr(r.s)} – ${fr(r.e)}<br><span class="muted" style="font-size:12px">travail ${fr(r.work)}</span></td>
+      <td><select class="b" data-f="b1" id="pb1-${r.id}" aria-label="Première pause">${bOpts(0)}</select></td>
+      <td><select class="m" data-f="meal" id="pm-${r.id}" aria-label="Repas">${opts(ceilTo(r.s, 30), r.e - 60, 30, r.meal)}</select></td>
+      <td><select class="b" data-f="b2" id="pb2-${r.id}" aria-label="Deuxième pause">${bOpts(1)}</select></td>
+      <td>${r.warnings.length ? `<ul class="warns">${r.warnings.map(w => `<li>${esc(w)}</li>`).join("")}</ul>` : '<span class="okmark">✓ conforme</span>'}
+          ${pinned ? ' <span class="chip pin">modifié</span>' : ""}</td>
+    </tr>`;
+  }).join("");
+  if ($("#taskBody").contains(document.activeElement)) updateTaskInfo(); else renderTasks();
+  if (document.activeElement !== $("#prelev")) renderPrelev();
+  renderTimeline();
+}
+function renderTasks() {
+  $("#taskEmpty").hidden = tasks.length > 0;
+  const people = staff.filter(p => (p.name || "").trim() || p.start);
+  $("#taskBody").innerHTML = tasks.map(t => `
+    <tr data-id="${t.id}">
+      <td><select class="tp" id="tp-${t.id}" aria-label="Personne">
+        <option value=""${t.pid ? "" : " selected"}>Choisir…</option>
+        ${people.map(p => `<option value="${p.id}"${p.id === t.pid ? " selected" : ""}>${esc((p.name || "").trim() || "Sans prénom")}</option>`).join("")}
+      </select></td>
+      <td><span class="swatch"></span><input class="tlabel" id="tl-${t.id}" list="taskPresets" value="${esc(t.label || "")}" placeholder="Nom de la tâche" aria-label="Tâche"></td>
+      <td><input class="ts" id="ts-${t.id}" type="time" step="900" value="${esc(t.start || "")}" aria-label="Début"></td>
+      <td><input class="te" id="te-${t.id}" type="time" step="900" value="${esc(t.end || "")}" aria-label="Fin"></td>
+      <td class="tw"></td>
+      <td><button type="button" class="ghost del" aria-label="Retirer la tâche">Retirer</button></td>
+    </tr>`).join("");
+  updateTaskInfo();
+}
+function updateTaskInfo() {
+  for (const tr of document.querySelectorAll("#taskBody tr")) {
+    const t = tasks.find(x => x.id === tr.dataset.id); if (!t) continue;
+    tr.querySelector(".swatch").style.background = taskColor(t.label);
+    const w = taskWarnings(t);
+    tr.querySelector(".tw").innerHTML = w.length ? `<ul class="warns">${w.map(x => `<li>${esc(x)}</li>`).join("")}</ul>` : '<span class="okmark">✓ ok</span>';
+  }
+}
+function addTask(label) {
+  const r = results.find(x => !tasks.some(t => t.pid === x.id)) || results[0];
+  const s = r ? Math.min(ceilTo(r.s + 60, 60), r.e - 60) : 600;
+  const t = { id: uid(), pid: r ? r.id : "", label, start: toHHMM(s), end: toHHMM(s + 60) };
+  tasks.push(t);
+  if (isExample) { isExample = false; $("#exampleBanner").hidden = true; }
+  renderTasks(); changed();
+  document.getElementById(label ? "tp-" + t.id : "tl-" + t.id).focus();
+}
+function renderTimeline() {
+  const el = $("#timeline");
+  if (!results.length) { el.innerHTML = ""; return; }
+  const T0 = floorTo(Math.min(...results.map(r => r.s)), 60), T1 = ceilTo(Math.max(...results.map(r => r.e)), 60);
+  const X = t => ((t - T0) / (T1 - T0) * 100).toFixed(3) + "%";
+  const W = d => (d / (T1 - T0) * 100).toFixed(3) + "%";
+  let grid = ""; for (let t = T0; t <= T1; t += 60) grid += `<div class="grid" style="left:${X(t)}"></div>`;
+  let ticks = ""; for (let t = T0; t <= T1; t += 60) ticks += `<span class="tick" style="left:${X(t)}">${t / 60}h</span>`;
+  const rows = results.map(r => `
+    <div class="tl-row"><div class="tl-name" title="${esc(r.name)}">${esc(r.name)}${r.id === prelev ? " " + PRELEV_ICON : ""}</div>
+      <div class="tl-track">${grid}
+        <div class="seg work" style="left:${X(r.s)};width:${W(r.e - r.s)}"></div>
+        ${tasks.filter(t => t.pid === r.id).flatMap(t => taskPieces(t, r).map(([a, b]) => `<div class="seg task" style="left:${X(a)};width:${W(b - a)};background:${taskColor(t.label)}" title="${esc((t.label || "Tâche") + " " + fr(a) + " – " + fr(b))}">${esc(t.label || "")}</div>`)).join("")}
+        ${r.meal != null ? `<div class="seg meal" style="left:${X(r.meal)};width:${W(60)}" title="Repas ${fr(r.meal)} – ${fr(r.meal + 60)}">${fr(r.meal)}</div>` : ""}
+        ${r.b.map(b => `<div class="seg brk" style="left:${X(b)};width:${W(15)}" title="Pause ${fr(b)} – ${fr(b + 15)}"><span>${Math.floor(b / 60)}h</span><span>${pad(b % 60)}</span></div>`).join("")}
+      </div></div>`).join("");
+  let cov = "";
+  for (let t = T0; t < T1; t += 30) {
+    const n = Math.min(coverage(results, t), coverage(results, t + 15));
+    const anyone = results.some(r => r.s < t + 30 && r.e > t);
+    if (anyone) cov += `<div class="cell${n <= 1 ? " low" : ""}" style="left:${X(t)};width:${W(30)}" title="${fr(t)} – ${fr(t + 30)} : ${n} en boutique (minimum)">${n}</div>`;
+  }
+  el.innerHTML = `<div class="tl-row tl-head"><div></div><div class="tl-track">${ticks}</div></div>${rows}
+    <div class="tl-row cov"><div class="tl-name muted">En boutique</div><div class="tl-track">${cov}</div></div>`;
+}
+function renderRoster() {
+  const list = roster || [];
+  $("#rosterList").innerHTML = list.map(r => `<option value="${esc(r.name)}"></option>`).join("");
+  $("#roster").innerHTML = list.length ? list.map((r, i) => `<span class="chip">${esc(r.name)}${r.manager ? " · manager" : ""} <span class="muted tnum">${r.start || "?"}–${r.end || "?"}</span><button type="button" data-i="${i}" aria-label="Retirer ${esc(r.name)} de l'équipe habituelle">×</button></span>`).join("")
+    : '<span class="muted">Vide pour l\'instant.</span>';
+}
+function renderRules() {
+  $("#rulesGrid").innerHTML = RULES_UI.map(([k, label]) => {
+    const input = `<input type="time" id="r-${k}" data-k="${k}" step="300" value="${toHHMM(settings[k])}">`;
+    return `<label for="r-${k}">${label} ${input}</label>`;
+  }).join("");
+}
+function changed() { saveDay(); renderPlan(); }
+
+/* ---------- PDF A4 paysage ---------- */
+function makePDF() {
+  if (!window.jspdf) { toast("Le PDF a besoin d'une connexion internet : rechargez la page une fois connecté."); return; }
+  const rs = results;
+  if (!rs.length) { toast("Ajoutez d'abord l'équipe et ses horaires."); return; }
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+  const Wp = 297, Hp = 210, M = 10;
+  const C = { ink: [36, 24, 31], muted: [110, 95, 103], line: [222, 211, 216], accent: [156, 47, 78], brk: [31, 122, 128], meal: [208, 138, 30], work: [232, 223, 228], zebra: [250, 246, 248], low: [251, 230, 224], white: [255, 255, 255], cash: [46, 125, 79] };
+  const fill = c => doc.setFillColor(...c), color = c => doc.setTextColor(...c), draw = c => doc.setDrawColor(...c);
+  const fit = (txt, w) => { let s = txt; while (s.length > 1 && doc.getTextWidth(s) > w) s = s.slice(0, -1); return s === txt ? s : s.slice(0, -1) + "."; };
+
+  // En-tête
+  doc.setFont("helvetica", "bold"); doc.setFontSize(20); color(C.ink);
+  doc.text("Planning des pauses", M, M + 7);
+  doc.setFontSize(13); color(C.accent);
+  doc.text(longDate(day), Wp - M, M + 7, { align: "right" });
+  // Légende
+  doc.setFont("helvetica", "normal"); doc.setFontSize(9); color(C.muted);
+  let lx = M; const ly = M + 13;
+  for (const [c, label] of [[C.work, "Présence"], [C.brk, "Pause 15 min"], [C.meal, "Repas 1 h"]]) {
+    fill(c); doc.roundedRect(lx, ly - 2.6, 6, 3.4, 0.8, 0.8, "F"); doc.text(label, lx + 8, ly); lx += 10 + doc.getTextWidth(label) + 6;
+  }
+
+  for (const label of taskLabels()) {
+    const c = rgb(taskColor(label));
+    fill(c); doc.roundedRect(lx, ly - 2.6, 6, 3.4, 0.8, 0.8, "F"); doc.text(label, lx + 8, ly); lx += 10 + doc.getTextWidth(label) + 6;
+  }
+  // Icône « Prélèvement » : un billet vert
+  const prelevIcon = (x, ymid, w) => {
+    const h = w * 0.6;
+    fill(C.cash); doc.roundedRect(x, ymid - h / 2, w, h, w * 0.08, w * 0.08, "F");
+    draw(C.white); doc.setLineWidth(w * 0.035); doc.roundedRect(x + w * 0.1, ymid - h / 2 + w * 0.1, w * 0.8, h - w * 0.2, w * 0.05, w * 0.05, "S");
+    fill(C.white); doc.circle(x + w / 2, ymid, h * 0.2, "F");
+  };
+  if (rs.some(r => r.id === prelev)) {
+    prelevIcon(lx, ly - 0.9, 6.4); color(C.muted); doc.text("Prélèvement", lx + 8.4, ly);
+  }
+
+  const top = M + 18, headH = 9, covH = 8, footH = 7, nameW = 42;
+  const tlX = M + nameW + 4, tlW = Wp - M - tlX - 3;
+  const T0 = floorTo(Math.min(...rs.map(r => r.s)), 60), T1 = ceilTo(Math.max(...rs.map(r => r.e)), 60);
+  const X = t => tlX + (t - T0) / (T1 - T0) * tlW;
+  const rh = Math.min(16, (Hp - M - footH - covH - top - headH - 2) / rs.length);
+  const fs = Math.max(6.5, Math.min(12, rh * 1.05));
+
+  // Ligne de titres
+  fill(C.ink); doc.rect(M, top, Wp - 2 * M, headH, "F");
+  doc.setFont("helvetica", "bold"); doc.setFontSize(9.5); color(C.white);
+  doc.text("Prénom", M + 3, top + headH / 2, { baseline: "middle" });
+  doc.setFontSize(8.5);
+  for (let t = T0; t <= T1; t += 60) doc.text(t / 60 + "h", X(t), top + headH / 2, { align: t === T1 ? "right" : "center", baseline: "middle" });
+
+  // Lignes
+  rs.forEach((r, i) => {
+    const y = top + headH + i * rh, yc = y + rh / 2;
+    if (i % 2) { fill(C.zebra); doc.rect(M, y, Wp - 2 * M, rh, "F"); }
+    draw(C.line); doc.setLineWidth(0.2);
+    for (let t = T0; t <= T1; t += 60) doc.line(X(t), y, X(t), y + rh);
+    doc.line(M, y + rh, Wp - M, y + rh);
+    const isPrelev = r.id === prelev, nameMax = nameW - (isPrelev ? 13 : 4);
+    if (isPrelev) { const iw = Math.min(9, rh * 0.75); prelevIcon(tlX - iw - 2, yc, iw); draw(C.line); doc.setLineWidth(0.2); }
+    doc.setFont("helvetica", "bold"); doc.setFontSize(fs); color(C.ink);
+    if (r.manager) {
+      fill(C.accent); doc.rect(M, y, 1.4, rh, "F");
+      const two = rh >= 9;
+      doc.text(fit(r.name, nameMax), M + 3, two ? yc - rh * 0.14 : yc, { baseline: "middle" });
+      doc.setFontSize(two ? 6.5 : 5.5); color(C.accent);
+      if (two) doc.text("MANAGER", M + 3, yc + rh * 0.24, { baseline: "middle" });
+      color(C.ink);
+    } else doc.text(fit(r.name, nameMax), M + 3, yc, { baseline: "middle" });
+    // Frise
+    const bh = Math.max(3, rh * 0.5), by = yc - bh / 2;
+    fill(C.work); doc.roundedRect(X(r.s), by, X(r.e) - X(r.s), bh, 1, 1, "F");
+    // Tâches : interrompues par les pauses et le repas
+    doc.setFont("helvetica", "bold"); doc.setFontSize(Math.min(7.5, fs * 0.7));
+    for (const t of tasks.filter(t => t.pid === r.id)) {
+      for (const [a, b] of taskPieces(t, r)) {
+        const w = X(b) - X(a);
+        fill(rgb(taskColor(t.label))); doc.rect(X(a), by, w, bh, "F");
+        if (w > 5) { color(C.white); doc.text(fit((t.label || "Tâche").trim(), w - 1.6), X(a) + w / 2, yc, { align: "center", baseline: "middle" }); }
+      }
+    }
+    if (r.meal != null) {
+      fill(C.meal); doc.roundedRect(X(r.meal), by - 0.6, X(r.meal + 60) - X(r.meal), bh + 1.2, 1, 1, "F");
+      doc.setFont("helvetica", "bold"); doc.setFontSize(Math.min(8, fs * 0.75)); color(C.white);
+      const mw = X(r.meal + 60) - X(r.meal), ml = doc.getTextWidth("Repas " + fr(r.meal)) + 2 < mw ? "Repas " + fr(r.meal) : fr(r.meal);
+      doc.text(ml, (X(r.meal) + X(r.meal + 60)) / 2, yc, { align: "center", baseline: "middle" });
+    }
+    // Pauses : case à sa vraie durée (15 min), heure écrite sur deux lignes (« 10h » / « 30 »)
+    doc.setFont("helvetica", "bold");
+    for (const b of r.b) {
+      const bw = X(b + 15) - X(b), bH = bh + 1.6;
+      fill(C.brk); doc.rect(X(b), by - 0.8, bw, bH, "F");
+      const l1 = Math.floor(b / 60) + "h", l2 = pad(b % 60);
+      let size = 7.5; doc.setFontSize(size);
+      while (size > 3.5 && (doc.getTextWidth(l1) > bw - 0.6 || size * 0.3528 * 2.1 > bH)) { size -= 0.25; doc.setFontSize(size); }
+      const lh = size * 0.3528 * 1.05, cxb = X(b) + bw / 2;
+      color(C.white);
+      doc.text(l1, cxb, yc - lh / 2, { align: "center", baseline: "middle" });
+      doc.text(l2, cxb, yc + lh / 2, { align: "center", baseline: "middle" });
+    }
+  });
+
+  // Présence en boutique
+  const cy = top + headH + rs.length * rh + 1;
+  doc.setFont("helvetica", "bold"); doc.setFontSize(8.5); color(C.muted);
+  doc.text("En boutique", M + 3, cy + covH / 2, { baseline: "middle" });
+  for (let t = T0; t < T1; t += 30) {
+    if (!rs.some(r => r.s < t + 30 && r.e > t)) continue;
+    const n = Math.min(coverage(rs, t), coverage(rs, t + 15));
+    if (n <= 1) { fill(C.low); doc.rect(X(t) + 0.3, cy + 0.8, X(t + 30) - X(t) - 0.6, covH - 1.6, "F"); }
+    color(n <= 1 ? C.accent : C.ink);
+    doc.text(String(n), (X(t) + X(t + 30)) / 2, cy + covH / 2, { align: "center", baseline: "middle" });
+  }
+  draw(C.line); doc.line(M, cy + covH, Wp - M, cy + covH);
+
+  // Pied de page
+  doc.setFont("helvetica", "normal"); doc.setFontSize(7.5); color(C.muted);
+  const S = settings;
+  doc.text(`Travail = présence - 1h de repas. 1 pause de 15 min dès ${fr(S.seuil1)} de travail, 2 pauses dès ${fr(S.seuil2)} - jamais collée au repas - managers jamais absentes en même temps`, M, Hp - M + 2);
+  const now = new Date();
+  doc.text("Édité le " + now.toLocaleDateString("fr-FR") + " à " + fr(now.getHours() * 60 + now.getMinutes()), Wp - M, Hp - M + 2, { align: "right" });
+
+  doc.save("pauses-" + day + ".pdf");
+}
+
+/* ---------- événements ---------- */
+$("#staffBody").addEventListener("input", e => {
+  const tr = e.target.closest("tr"); if (!tr) return;
+  const p = staff.find(x => x.id === tr.dataset.id), c = e.target.classList;
+  if (c.contains("name")) {
+    p.name = e.target.value;
+    const r = (roster || []).find(x => x.name.toLowerCase() === p.name.trim().toLowerCase());
+    if (r && !p.start && !p.end) { p.start = r.start; p.end = r.end; p.manager = !!r.manager; tr.querySelector(".start").value = r.start || ""; tr.querySelector(".end").value = r.end || ""; tr.querySelector(".mgr").checked = p.manager; }
+  }
+  else if (c.contains("start")) { p.start = e.target.value; delete overrides[p.id]; }
+  else if (c.contains("end")) { p.end = e.target.value; delete overrides[p.id]; }
+  else if (c.contains("nomeal")) { p.noMeal = e.target.checked; delete overrides[p.id]; }
+  else if (c.contains("mgr")) { p.manager = e.target.checked; }
+  if (isExample) { isExample = false; $("#exampleBanner").hidden = true; }
+  changed();
+});
+$("#staffBody").addEventListener("click", e => {
+  if (!e.target.classList.contains("del")) return;
+  const id = e.target.closest("tr").dataset.id;
+  staff = staff.filter(x => x.id !== id); delete overrides[id];
+  tasks = tasks.filter(t => t.pid !== id);
+  if (isExample) isExample = false;
+  renderStaff(); changed();
+});
+$("#addOne").addEventListener("click", () => {
+  const p = { id: uid(), name: "", start: "", end: "", noMeal: false };
+  staff.push(p); if (isExample) isExample = false;
+  renderStaff(); changed();
+  document.getElementById("n-" + p.id).focus();
+});
+$("#addAll").addEventListener("click", () => {
+  const list = roster || [];
+  if (!list.length) { toast("L'équipe habituelle est vide : elle se remplit au fil des saisies."); return; }
+  if (isExample) { staff = []; overrides = {}; tasks = []; isExample = false; }
+  let added = 0;
+  for (const r of list) {
+    if (staff.some(p => (p.name || "").trim().toLowerCase() === r.name.toLowerCase())) continue;
+    staff.push({ id: uid(), name: r.name, start: r.start || "", end: r.end || "", noMeal: false, manager: !!r.manager }); added++;
+  }
+  renderStaff(); changed(); toast(added ? added + " personne(s) ajoutée(s). Retirez les absentes et corrigez les horaires." : "Toute l'équipe est déjà là.");
+});
+$("#clearExample").addEventListener("click", () => { staff = []; overrides = {}; tasks = []; isExample = false; roster = roster || []; store.set("pauses:roster", roster); renderStaff(); changed(); });
+$("#planBody").addEventListener("change", e => {
+  const sel = e.target.closest("select"); if (!sel) return;
+  const id = sel.closest("tr").dataset.id, r = results.find(x => x.id === id);
+  const v = sel.value === "" ? null : +sel.value, f = sel.dataset.f;
+  const ov = overrides[id] = overrides[id] || {};
+  if (f === "meal") ov.meal = v;
+  else { const b = slots(r); b[f === "b1" ? 0 : 1] = v; ov.breaks = b.filter(x => x != null); }
+  if (isExample) { isExample = false; $("#exampleBanner").hidden = true; }
+  changed();
+});
+$("#resetPlan").addEventListener("click", () => { overrides = {}; changed(); toast("Planning recalculé automatiquement."); });
+$("#pdf").addEventListener("click", makePDF);
+$("#day").addEventListener("change", e => {
+  if (!e.target.value) return;
+  saveDay(); day = e.target.value; loadDay(); renderStaff(); renderPlan();
+});
+$("#prevDay").addEventListener("click", () => {
+  const prev = store.keys().filter(k => k.startsWith("pauses:day:") && k.slice(11) < day).sort().pop();
+  if (!prev) { toast("Aucune journée précédente enregistrée."); return; }
+  const d = store.get(prev, null); if (!d) return;
+  const ids = {};
+  staff = d.staff.map(p => { const id = uid(); ids[p.id] = id; return { ...p, id }; }); overrides = {}; isExample = false;
+  tasks = []; prelev = ""; // tâches et prélèvement changent chaque jour : on ne les reprend pas
+  renderStaff(); changed(); toast("Équipe du " + longDate(prev.slice(11)).toLowerCase() + " reprise.");
+});
+$("#rulesGrid").addEventListener("change", e => {
+  const k = e.target.dataset.k; if (!k) return;
+  const v = toMin(e.target.value); if (!isFinite(v)) return; settings[k] = v;
+  store.set("pauses:settings", settings); renderPlan();
+});
+$("#resetRules").addEventListener("click", () => { settings = Object.assign({}, DEFAULTS); store.set("pauses:settings", settings); renderRules(); renderPlan(); toast("Règles par défaut rétablies."); });
+$("#prelev").addEventListener("change", e => {
+  prelev = e.target.value;
+  if (isExample) { isExample = false; $("#exampleBanner").hidden = true; }
+  changed();
+});
+$("#roster").addEventListener("click", e => {
+  const i = e.target.dataset.i; if (i === undefined) return;
+  roster.splice(+i, 1); store.set("pauses:roster", roster); renderRoster();
+});
+
+$("#taskQuick").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  if (!results.length) { toast("Ajoutez d'abord l'équipe et ses horaires."); return; }
+  addTask(b.dataset.label);
+});
+$("#taskBody").addEventListener("input", e => {
+  const tr = e.target.closest("tr"); if (!tr) return;
+  const t = tasks.find(x => x.id === tr.dataset.id), c = e.target.classList;
+  if (c.contains("tp")) t.pid = e.target.value;
+  else if (c.contains("tlabel")) t.label = e.target.value;
+  else if (c.contains("ts")) t.start = e.target.value;
+  else if (c.contains("te")) t.end = e.target.value;
+  if (isExample) { isExample = false; $("#exampleBanner").hidden = true; }
+  changed();
+});
+$("#taskBody").addEventListener("click", e => {
+  if (!e.target.classList.contains("del")) return;
+  const id = e.target.closest("tr").dataset.id;
+  tasks = tasks.filter(t => t.id !== id);
+  if (isExample) isExample = false;
+  renderTasks(); changed();
+});
+
+/* ---------- démarrage ---------- */
+$("#taskPresets").innerHTML = TASK_PRESETS.map(l => `<option value="${l}"></option>`).join("");
+$("#day").value = day;
+loadDay(); renderStaff(); renderRules(); renderRoster(); renderPlan();
+</script>
+</body>
+</html>
