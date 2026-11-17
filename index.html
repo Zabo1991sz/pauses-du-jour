@@ -123,6 +123,10 @@ td:has(> .tlabel) { white-space: nowrap; }
 .seg.brk { background: var(--break); top: 1px; bottom: 1px; border-radius: 2px; z-index: 1; color: #fff; font-size: 9px; line-height: 1; font-weight: 700; font-variant-numeric: tabular-nums; display: flex; flex-direction: column; align-items: center; justify-content: center; white-space: nowrap; overflow: hidden; }
 .tl-track { height: 30px; }
 .cov .tl-track { height: 22px; }
+.trf { position: absolute; top: 0; bottom: 0; padding: 0; border: 0; border-radius: 3px; background: transparent; color: var(--muted); font-size: 9px; letter-spacing: -1px; cursor: pointer; }
+.trf:hover { background: var(--work); }
+.trf.lv1, .trf.lv2 { color: var(--ink); }
+.trf.lv3 { color: var(--accent); font-weight: 700; }
 .cell { position: absolute; top: 0; bottom: 0; display: flex; align-items: center; justify-content: center; font-size: 11px; font-variant-numeric: tabular-nums; border-radius: 3px; }
 .cell.low { background: var(--warn-bg); color: var(--warn); font-weight: 700; }
 .legend { display: flex; flex-wrap: wrap; gap: 16px; font-size: 13px; color: var(--muted); }
@@ -235,6 +239,9 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
   <section class="panel">
     <details class="rules">
       <summary>Règles de calcul et équipe habituelle</summary>
+      <div class="rules-grid" style="margin-top:16px">
+        <label for="storeName">Enseigne / magasin affiché sur le PDF <input id="storeName" maxlength="40" placeholder="ex. nom du magasin"></label>
+      </div>
       <div class="rules-grid" id="rulesGrid"></div>
       <div class="actions" style="margin-top:16px"><button id="resetRules" type="button">Rétablir les règles par défaut</button></div>
       <div style="margin-top:20px">
@@ -303,7 +310,9 @@ const RULES_UI = [
 let settings = Object.assign({}, DEFAULTS, store.get("pauses:settings", {}));
 let roster = store.get("pauses:roster", null);
 let day = todayISO();
-let staff = [], overrides = {}, tasks = [], prelev = "", isExample = false, results = [];
+let staff = [], overrides = {}, tasks = [], prelev = "", traffic = {}, isExample = false, results = [];
+let storeName = store.get("pauses:store", "");
+const DOTS = ["", "●", "●●", "●●●"];
 const PRELEV_ICON = '<span class="ico-prelev" title="Prélèvement" aria-label="Prélèvement"></span>';
 function renderPrelev() {
   if (prelev && !staff.some(p => p.id === prelev)) prelev = "";
@@ -354,6 +363,7 @@ const EXAMPLE = () => [
 function loadDay() {
   const d = store.get("pauses:day:" + day, null);
   prelev = d ? d.prelev || "" : "";
+  traffic = d ? d.traffic || {} : {};
   if (d) { staff = d.staff || []; overrides = d.overrides || {}; tasks = d.tasks || []; isExample = false; }
   else if (roster === null) {
     staff = EXAMPLE(); overrides = {}; isExample = true;
@@ -365,7 +375,7 @@ function loadDay() {
 }
 function saveDay() {
   if (isExample) return;
-  store.set("pauses:day:" + day, { staff, overrides, tasks, prelev });
+  store.set("pauses:day:" + day, { staff, overrides, tasks, prelev, traffic });
   roster = roster || [];
   for (const p of staff) {
     const n = (p.name || "").trim(); if (!n) continue;
@@ -627,7 +637,13 @@ function renderTimeline() {
     const anyone = results.some(r => r.s < t + 30 && r.e > t);
     if (anyone) cov += `<div class="cell${n <= 1 ? " low" : ""}" style="left:${X(t)};width:${W(30)}" title="${fr(t)} – ${fr(t + 30)} : ${n} en boutique (minimum)">${n}</div>`;
   }
+  let trf = "";
+  for (let t = T0; t < T1; t += 30) {
+    const lv = traffic[t] || 0;
+    trf += `<button type="button" class="trf lv${lv}" data-t="${t}" style="left:${X(t)};width:${W(30)}" title="${fr(t)} – ${fr(t + 30)} : ${["non renseigné", "calme", "normal", "fort"][lv]} (cliquer pour changer)">${DOTS[lv] || "·"}</button>`;
+  }
   el.innerHTML = `<div class="tl-row tl-head"><div></div><div class="tl-track">${ticks}</div></div>${rows}
+    <div class="tl-row cov"><div class="tl-name muted" title="Cliquez sur une demi-heure : 1 = calme, 2 = normal, 3 = fort">Trafic (1·2·3)</div><div class="tl-track">${trf}</div></div>
     <div class="tl-row cov"><div class="tl-name muted">En boutique</div><div class="tl-track">${cov}</div></div>`;
 }
 function renderRoster() {
@@ -657,9 +673,7 @@ function makePDF() {
     black: [0, 0, 0], g1: [38, 38, 38], g2: [89, 89, 89], g3: [127, 127, 127], g4: [166, 166, 166],
     g5: [191, 191, 191], g6: [227, 227, 227], g7: [244, 244, 244], white: [255, 255, 255], red: [228, 0, 43]
   };
-  const TASK_GREYS = [[89, 89, 89], [166, 166, 166], [38, 38, 38], [127, 127, 127], [191, 191, 191]];
-  const taskGrey = label => TASK_GREYS[Math.max(0, taskLabels().map(l => l.toLowerCase()).indexOf((label || "").trim().toLowerCase())) % TASK_GREYS.length];
-  const onGrey = c => (c[0] > 150 ? C.black : C.white);
+  const taskRGB = label => rgb(taskColor(label)); // mêmes couleurs qu'à l'écran
   const fill = c => doc.setFillColor(...c), color = c => doc.setTextColor(...c), draw = c => doc.setDrawColor(...c);
   const font = (w, s) => { doc.setFont("helvetica", w); doc.setFontSize(s); };
   const fit = (txt, w) => { let s = txt; while (s.length > 1 && doc.getTextWidth(s) > w) s = s.slice(0, -1); return s === txt ? s : s.slice(0, -1) + "."; };
@@ -674,8 +688,11 @@ function makePDF() {
   // ---- En-tête ----
   font("bold", 22); color(C.black);
   caps("Planning des pauses", M, M + 8, { charSpace: 0.8 });
+  const brand = (storeName || "").trim().toUpperCase();
+  let sx = M;
+  if (brand) { font("bold", 8.5); color(C.black); caps(brand, sx, M + 14, { charSpace: 0.6 }); sx += doc.getTextWidth(brand) + brand.length * 0.6 + 2; }
   font("normal", 8.5); color(C.g2);
-  doc.text("Pauses 15 min  ·  repas  ·  tâches  —  qui est absent du plateau, et quand", M, M + 14);
+  doc.text((brand ? "·  " : "") + "qui est en pause, quand et sur quelle tâche", sx, M + 14);
   const infoBox = (label, value, xr, w) => {
     font("normal", 6.5); color(C.g3); caps(label, xr - w, M + 3.5);
     font("bold", 11); color(C.black); caps(value, xr - w, M + 9.5, { charSpace: 0.2 });
@@ -687,14 +704,14 @@ function makePDF() {
   draw(C.black); doc.setLineWidth(0.7); doc.line(M, M + 17, Wp - M, M + 17);
 
   // ---- Grille ----
-  const legendY = Hp - M - 3.5, covH = 7, headH = 8, nameW = 44;
+  const legendY = Hp - M - 3.5, covH = 7, trfH = 6, headH = 8, nameW = 44;
   const top = M + 21;
   const tlX = M + nameW, tlW = Wp - M - tlX;
   const T0 = floorTo(Math.min(...rs.map(r => r.s)), 60), T1 = ceilTo(Math.max(...rs.map(r => r.e)), 60);
   const X = t => tlX + (t - T0) / (T1 - T0) * tlW;
-  const rh = Math.min(15, (legendY - 6 - covH - top - headH) / rs.length);
+  const rh = Math.min(15, (legendY - 6 - covH - trfH - top - headH) / rs.length);
   const fs = Math.max(6.5, Math.min(10.5, rh * 0.95));
-  const gridBottom = top + headH + rs.length * rh + covH;
+  const gridBottom = top + headH + rs.length * rh + trfH + covH;
 
   // Bandeau noir : ÉQUIPE + heures (heures pleines en blanc, demi-heures en gris)
   fill(C.black); doc.rect(M, top, Wp - 2 * M, headH, "F");
@@ -725,21 +742,21 @@ function makePDF() {
 
     // Présence
     const bh = Math.max(3, rh * 0.56), by = yc - bh / 2;
-    fill(C.g6); doc.rect(X(r.s), by, X(r.e) - X(r.s), bh, "F");
-    // Tâches (gris), interrompues par les pauses et le repas
+    fill(C.g6); doc.roundedRect(X(r.s), by, X(r.e) - X(r.s), bh, 1.2, 1.2, "F");
+    // Tâches (en couleur), interrompues par les pauses et le repas
     font("bold", Math.min(7, fs * 0.72));
     for (const t of tasks.filter(t => t.pid === r.id)) {
-      const g = taskGrey(t.label);
+      const g = taskRGB(t.label);
       for (const [a, b] of taskPieces(t, r)) {
         const w = X(b) - X(a);
-        fill(g); doc.rect(X(a), by, w, bh, "F");
-        if (w > 5) { color(onGrey(g)); doc.text(fit((t.label || "Tâche").trim().toUpperCase(), w - 1.6), X(a) + w / 2, yc, { align: "center", baseline: "middle" }); }
+        fill(g); doc.roundedRect(X(a), by, w, bh, 1, 1, "F");
+        if (w > 5) { color(C.white); doc.text(fit((t.label || "Tâche").trim().toUpperCase(), w - 1.6), X(a) + w / 2, yc, { align: "center", baseline: "middle" }); }
       }
     }
     // Repas : case blanche cerclée de noir
     if (r.meal != null) {
       const mx = X(r.meal), mw = X(r.meal + 60) - mx;
-      fill(C.white); draw(C.black); doc.setLineWidth(0.4); doc.rect(mx, by - 0.5, mw, bh + 1, "FD");
+      fill(C.white); draw(C.black); doc.setLineWidth(0.4); doc.roundedRect(mx, by - 0.5, mw, bh + 1, 1.4, 1.4, "FD");
       font("bold", Math.min(7.5, fs * 0.75)); color(C.black);
       const ml = doc.getTextWidth("REPAS " + fr(r.meal)) + 2 < mw ? "REPAS " + fr(r.meal) : fr(r.meal);
       doc.text(ml, mx + mw / 2, yc, { align: "center", baseline: "middle" });
@@ -747,7 +764,7 @@ function makePDF() {
     // Pauses 15 min : noir plein, à leur vraie durée, heure sur deux lignes
     for (const b of r.b) {
       const bw = X(b + 15) - X(b), bH = bh + 1.6;
-      fill(C.black); doc.rect(X(b), by - 0.8, bw, bH, "F");
+      fill(C.black); doc.roundedRect(X(b), by - 0.8, bw, bH, 0.9, 0.9, "F");
       const l1 = Math.floor(b / 60) + "h", l2 = pad(b % 60);
       let size = 7; font("bold", size);
       while (size > 3.5 && (doc.getTextWidth(l1) > bw - 0.6 || size * 0.3528 * 2.1 > bH)) { size -= 0.25; doc.setFontSize(size); }
@@ -758,8 +775,18 @@ function makePDF() {
     }
   });
 
+  // ---- Trafic (1 · 2 · 3), en points ----
+  const ty = top + headH + rs.length * rh;
+  font("bold", 6.5); color(C.g2); caps("Trafic  (1 · 2 · 3)", M + 3, ty + trfH / 2, { baseline: "middle", charSpace: 0.5 });
+  fill(C.black);
+  for (let t = T0; t < T1; t += 30) {
+    const lv = traffic[t] || 0, cx = (X(t) + X(t + 30)) / 2, rr = 0.65, gap = 2;
+    for (let k = 0; k < lv; k++) doc.circle(cx + (k - (lv - 1) / 2) * gap, ty + trfH / 2, rr, "F");
+  }
+  draw(C.g6); doc.setLineWidth(0.2); doc.line(M, ty + trfH, Wp - M, ty + trfH);
+
   // ---- En boutique ----
-  const cy = top + headH + rs.length * rh;
+  const cy = ty + trfH;
   fill(C.g7); doc.rect(M, cy, Wp - 2 * M, covH, "F");
   font("bold", 6.5); color(C.g2); caps("En boutique", M + 3, cy + covH / 2, { baseline: "middle", charSpace: 0.5 });
   for (let t = T0; t < T1; t += 30) {
@@ -780,10 +807,10 @@ function makePDF() {
     paint(lx, legendY - 2.6); font("normal", 7); color(C.g1); doc.text(label, lx + 8, legendY);
     lx += 8 + doc.getTextWidth(label) + 6;
   };
-  swatch("Présence", (x, y) => { fill(C.g6); doc.rect(x, y, 6, 3.2, "F"); });
-  swatch("Pause 15 min", (x, y) => { fill(C.black); doc.rect(x, y, 6, 3.2, "F"); });
-  swatch("Repas 1 h", (x, y) => { fill(C.white); draw(C.black); doc.setLineWidth(0.35); doc.rect(x, y, 6, 3.2, "FD"); });
-  for (const label of taskLabels()) swatch(label, (x, y) => { fill(taskGrey(label)); doc.rect(x, y, 6, 3.2, "F"); });
+  swatch("Présence", (x, y) => { fill(C.g6); doc.roundedRect(x, y, 6, 3.2, 0.8, 0.8, "F"); });
+  swatch("Pause 15 min", (x, y) => { fill(C.black); doc.roundedRect(x, y, 6, 3.2, 0.8, 0.8, "F"); });
+  swatch("Repas 1 h", (x, y) => { fill(C.white); draw(C.black); doc.setLineWidth(0.35); doc.roundedRect(x, y, 6, 3.2, 0.8, 0.8, "FD"); });
+  for (const label of taskLabels()) swatch(label, (x, y) => { fill(taskRGB(label)); doc.roundedRect(x, y, 6, 3.2, 0.8, 0.8, "F"); });
   if (rs.some(r => r.id === prelev)) swatch("Prélèvement", (x, y) => prelevIcon(x, y + 1.6, 6));
   swatch("1 personne ou moins en boutique", (x, y) => { fill(C.red); doc.rect(x, y, 6, 3.2, "F"); });
 
@@ -862,8 +889,18 @@ $("#prevDay").addEventListener("click", () => {
   const ids = {};
   staff = d.staff.map(p => { const id = uid(); ids[p.id] = id; return { ...p, id }; }); overrides = {}; isExample = false;
   tasks = []; prelev = ""; // tâches et prélèvement changent chaque jour : on ne les reprend pas
+  traffic = Object.assign({}, d.traffic || {}); // le trafic, lui, est repris comme base
   renderStaff(); changed(); toast("Équipe du " + longDate(prev.slice(11)).toLowerCase() + " reprise.");
 });
+$("#timeline").addEventListener("click", e => {
+  const b = e.target.closest(".trf"); if (!b) return;
+  const t = +b.dataset.t, lv = ((traffic[t] || 0) + 1) % 4;
+  if (lv) traffic[t] = lv; else delete traffic[t];
+  if (isExample) { isExample = false; $("#exampleBanner").hidden = true; }
+  saveDay(); renderTimeline();
+});
+$("#storeName").value = storeName;
+$("#storeName").addEventListener("input", e => { storeName = e.target.value; store.set("pauses:store", storeName); });
 $("#rulesGrid").addEventListener("change", e => {
   const k = e.target.dataset.k; if (!k) return;
   const v = toMin(e.target.value); if (!isFinite(v)) return; settings[k] = v;
