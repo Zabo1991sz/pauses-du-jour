@@ -164,7 +164,6 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
       <h2 id="h-team">Équipe présente</h2>
       <div class="actions">
         <button id="addAll" type="button">Ajouter toute l'équipe habituelle</button>
-        <button id="addOne" type="button" class="primary">+ Ajouter une personne</button>
       </div>
     </div>
     <div id="exampleBanner" class="banner" hidden>
@@ -178,6 +177,7 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
       </table>
       <p id="staffEmpty" class="empty" hidden>Personne pour l'instant. Ajoutez les personnes présentes aujourd'hui.</p>
     </div>
+    <div class="actions"><button id="addOne" type="button" class="primary">+ Ajouter une personne</button></div>
     <div class="prelev-row">
       <label for="prelev"><span class="ico-prelev" aria-hidden="true"></span> <strong>Prélèvement du jour</strong></label>
       <select id="prelev"></select>
@@ -652,7 +652,10 @@ function renderRules() {
     return `<label for="r-${k}">${label} ${input}</label>`;
   }).join("");
 }
-function changed() { saveDay(); renderPlan(); }
+function changed() { // toute modification faite par l'utilisatrice : on quitte l'exemple et on enregistre
+  if (isExample) { isExample = false; $("#exampleBanner").hidden = true; }
+  saveDay(); renderPlan();
+}
 
 /* ---------- PDF A4 paysage ---------- */
 function makePDF() {
