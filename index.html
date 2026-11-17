@@ -637,13 +637,7 @@ function renderTimeline() {
     const anyone = results.some(r => r.s < t + 30 && r.e > t);
     if (anyone) cov += `<div class="cell${n <= 1 ? " low" : ""}" style="left:${X(t)};width:${W(30)}" title="${fr(t)} – ${fr(t + 30)} : ${n} en boutique (minimum)">${n}</div>`;
   }
-  let trf = "";
-  for (let t = T0; t < T1; t += 30) {
-    const lv = traffic[t] || 0;
-    trf += `<button type="button" class="trf lv${lv}" data-t="${t}" style="left:${X(t)};width:${W(30)}" title="${fr(t)} – ${fr(t + 30)} : ${["non renseigné", "calme", "normal", "fort"][lv]} (cliquer pour changer)">${DOTS[lv] || "·"}</button>`;
-  }
   el.innerHTML = `<div class="tl-row tl-head"><div></div><div class="tl-track">${ticks}</div></div>${rows}
-    <div class="tl-row cov"><div class="tl-name muted" title="Cliquez sur une demi-heure : 1 = calme, 2 = normal, 3 = fort">Trafic (1·2·3)</div><div class="tl-track">${trf}</div></div>
     <div class="tl-row cov"><div class="tl-name muted">En boutique</div><div class="tl-track">${cov}</div></div>`;
 }
 function renderRoster() {
@@ -704,7 +698,7 @@ function makePDF() {
   draw(C.black); doc.setLineWidth(0.7); doc.line(M, M + 17, Wp - M, M + 17);
 
   // ---- Grille ----
-  const legendY = Hp - M - 3.5, covH = 7, trfH = 6, headH = 8, nameW = 44;
+  const legendY = Hp - M, covH = 7, trfH = 0, headH = 8, nameW = 44;
   const top = M + 21;
   const tlX = M + nameW, tlW = Wp - M - tlX;
   const T0 = floorTo(Math.min(...rs.map(r => r.s)), 60), T1 = ceilTo(Math.max(...rs.map(r => r.e)), 60);
@@ -775,18 +769,8 @@ function makePDF() {
     }
   });
 
-  // ---- Trafic (1 · 2 · 3), en points ----
-  const ty = top + headH + rs.length * rh;
-  font("bold", 6.5); color(C.g2); caps("Trafic  (1 · 2 · 3)", M + 3, ty + trfH / 2, { baseline: "middle", charSpace: 0.5 });
-  fill(C.black);
-  for (let t = T0; t < T1; t += 30) {
-    const lv = traffic[t] || 0, cx = (X(t) + X(t + 30)) / 2, rr = 0.65, gap = 2;
-    for (let k = 0; k < lv; k++) doc.circle(cx + (k - (lv - 1) / 2) * gap, ty + trfH / 2, rr, "F");
-  }
-  draw(C.g6); doc.setLineWidth(0.2); doc.line(M, ty + trfH, Wp - M, ty + trfH);
-
   // ---- En boutique ----
-  const cy = ty + trfH;
+  const cy = top + headH + rs.length * rh;
   fill(C.g7); doc.rect(M, cy, Wp - 2 * M, covH, "F");
   font("bold", 6.5); color(C.g2); caps("En boutique", M + 3, cy + covH / 2, { baseline: "middle", charSpace: 0.5 });
   for (let t = T0; t < T1; t += 30) {
@@ -803,7 +787,7 @@ function makePDF() {
   let lx = M;
   font("bold", 7); color(C.black); caps("Légende", lx, legendY, { charSpace: 0.6 }); lx += 18;
   const swatch = (label, paint) => {
-    font("normal", 7); if (lx + 8 + doc.getTextWidth(label) > Wp - M) return; // plus de place sur la ligne
+    font("normal", 7); if (lx + 8 + doc.getTextWidth(label) > Wp - M - 36) return; // plus de place sur la ligne
     paint(lx, legendY - 2.6); font("normal", 7); color(C.g1); doc.text(label, lx + 8, legendY);
     lx += 8 + doc.getTextWidth(label) + 6;
   };
@@ -816,10 +800,8 @@ function makePDF() {
 
   // ---- Pied de page ----
   font("normal", 6); color(C.g3);
-  const S = settings;
-  doc.text(`Travail = présence - 1h de repas  ·  1 pause de 15 min dès ${fr(S.seuil1)} de travail, 2 dès ${fr(S.seuil2)}  ·  jamais collée au repas  ·  managers jamais absentes en même temps`, M, Hp - M + 3);
   const now = new Date();
-  doc.text("Édité le " + now.toLocaleDateString("fr-FR") + " à " + fr(now.getHours() * 60 + now.getMinutes()), Wp - M, Hp - M + 3, { align: "right" });
+  doc.text("Édité le " + now.toLocaleDateString("fr-FR") + " à " + fr(now.getHours() * 60 + now.getMinutes()), Wp - M, legendY, { align: "right" });
 
   doc.save("pauses-" + day + ".pdf");
 }
