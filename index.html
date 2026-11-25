@@ -307,6 +307,8 @@ const DEFAULTS = {
   minWorkBeforeBreak: 60, // 1h de travail avant toute pause de 15 min
   minWorkAfterBreak: 30,  // pas de pause dans la dernière demi-heure
   pmBreakFrom: 930,       // 15h30 : pauses d'après-midi
+  pmBreakLatest: 1035,    // 17h15 : dernier départ en pause 15 min l'après-midi
+  workAfterMealBreak: 60, // 1h de travail minimum après le repas avant la pause de l'après-midi
   gapMeal: 60             // écart souhaité entre une pause de 15 min et le repas
 };
 const RULES_UI = [
@@ -322,6 +324,8 @@ const RULES_UI = [
   ["minWorkBeforeBreak", "Travail minimum avant une pause 15 min"],
   ["minWorkAfterBreak", "Pas de pause 15 min dans les dernières"],
   ["pmBreakFrom", "Pauses de l'après-midi à partir de"],
+  ["pmBreakLatest", "Pauses de l'après-midi au plus tard à"],
+  ["workAfterMealBreak", "Travail minimum entre repas et pause 15 min"],
   ["gapMeal", "Écart souhaité pause 15 min / repas"]
 ];
 
@@ -429,7 +433,7 @@ function requiredBreaks(p, S) {
 function mgrClash(p, abs, a, b) {
   return abs.some(x => x.mgr && x.id !== p.id && x.a < b && x.b > a);
 }
-function placeBreaks(p, S, abs, strictMgr) {
+function placeBreaks(p, S, abs, strictMgr, strictPm) {
   const others = abs.filter(x => x.id !== p.id);
   const absent = t => others.filter(x => x.a < t + 15 && x.b > t).length;
   const lo = ceilTo(p.s + S.minWorkBeforeBreak, 15), hi = p.e - S.minWorkAfterBreak - 15;
@@ -442,14 +446,19 @@ function placeBreaks(p, S, abs, strictMgr) {
     const a = pick(l.filter(t => t <= l[l.length - 1] - 75), l[0] + span / 3); if (!a) return l.length ? [pick(l, mid(l)).t] : [];
     const b = pick(l.filter(t => t >= a.t + 75), l[0] + 2 * span / 3); return b ? [a.t, b.t] : [a.t];
   };
-  const all = []; for (let t = lo; t <= hi; t += 15) if (!(strictMgr && mgrClash(p, abs, t, t + 15))) all.push(t);
+  const all = [];
+  for (let t = lo; t <= hi; t += 15) {
+    if (strictMgr && mgrClash(p, abs, t, t + 15)) continue;
+    if (strictPm && t >= 720 && t > S.pmBreakLatest) continue; // pas de pause l'après-midi après 17h15
+    all.push(t);
+  }
   if (!all.length) return [];
   if (!hasMeal) return p.n === 1 ? [pick(all, mid(all)).t] : spread(all);
   const gaps = [...new Set([S.gapMeal, 45, 30, 15].filter(g => g <= S.gapMeal && g >= 15))];
   let before = [], after = [];
   for (const g of gaps) {
     before = all.filter(t => t + 15 <= p.meal - g);
-    after = all.filter(t => t >= p.meal + 60 + g);
+    after = all.filter(t => t >= p.meal + 60 + Math.max(g, S.workAfterMealBreak)); // au moins 1h de travail après le repas
     if (p.n === 2 && before.length && after.length) return [pick(before, mid(before)).t, pick(after, mid(after)).t];
     if (p.n === 1 && (before.length || after.length)) {
       const c = [];
@@ -486,6 +495,8 @@ function validate(p, S, ppl) {
     if (t < p.s || t + 15 > p.e) w.push("Pause de " + fr(t) + " en dehors des horaires");
     else if (t < p.s + S.minWorkBeforeBreak) w.push("Pause de " + fr(t) + " avant 1h de travail");
     if (m != null && t + 15 >= m && t <= m + 60) w.push("Pause de " + fr(t) + " collée au repas");
+    else if (m != null && t > m && t < m + 60 + S.workAfterMealBreak) w.push("Pause de " + fr(t) + " moins d'1h après le repas");
+    if (t >= 720 && t > S.pmBreakLatest) w.push("Pause de " + fr(t) + " après " + fr(S.pmBreakLatest));
   }
   if (m != null && p.b.length === 2 && !(p.b[0] < m && p.b[1] > m)) w.push("Il faut une pause avant et une après le repas");
   return w;
@@ -533,8 +544,10 @@ function computePlan() {
   for (const p of ppl) { p.work = p.presence - (p.meal != null ? 60 : 0); p.n = requiredBreaks(p, S); }
   for (const p of [...ppl].sort((a, b) => (b.manager - a.manager) || (a.s - b.s) || (a.e - b.e))) {
     if (p.breaksPinned || !p.n) continue;
-    let b = p.manager ? placeBreaks(p, S, abs, true) : [];
-    if (b.length < p.n) b = placeBreaks(p, S, abs, false);
+    // On essaie d'abord en respectant tout, puis en relâchant (manager, puis limite de 17h15) ; le contrôle signale l'écart
+    const tries = [[true, true], [false, true], [true, false], [false, false]].filter(([m]) => p.manager || !m);
+    let b = [];
+    for (const [m, pm] of tries) { b = placeBreaks(p, S, abs, m, pm); if (b.length >= p.n) break; }
     p.b = b.sort((x, y) => x - y);
     p.b.forEach(t => abs.push({ id: p.id, a: t, b: t + 15, k: "b", mgr: p.manager }));
   }
