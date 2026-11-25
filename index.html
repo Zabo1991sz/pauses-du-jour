@@ -135,6 +135,7 @@ td:has(> .tlabel) { white-space: nowrap; }
 details.rules summary { cursor: pointer; font-family: var(--font-display); font-weight: 600; font-size: 18px; }
 .rules-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px 24px; margin-top: 16px; }
 .rules-grid label { display: flex; justify-content: space-between; align-items: center; gap: 12px; font-size: 14px; }
+details.roster-box summary { cursor: pointer; font-weight: 500; }
 .roster { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .roster .chip { display: inline-flex; align-items: center; gap: 4px; padding-right: 2px; }
 .roster .chip button { border: 0; padding: 2px 6px; font-size: 12px; color: var(--muted); }
@@ -172,12 +173,20 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
     </div>
     <div class="scroll">
       <table>
-        <thead><tr><th>Prénom</th><th>Arrivée</th><th>Départ</th><th>Manager</th><th>Travail réel</th><th>Pauses dues</th><th>Repas</th><th></th></tr></thead>
+        <thead><tr><th>Prénom</th><th>Arrivée</th><th>Départ</th><th>Manager</th><th>Zone</th><th>Travail réel</th><th>Pauses dues</th><th>Repas</th><th></th></tr></thead>
         <tbody id="staffBody"></tbody>
       </table>
       <p id="staffEmpty" class="empty" hidden>Personne pour l'instant. Ajoutez les personnes présentes aujourd'hui.</p>
     </div>
     <div class="actions"><button id="addOne" type="button" class="primary">+ Ajouter une personne</button></div>
+    <details class="roster-box">
+      <summary>Prénoms enregistrés <span class="muted" style="font-size:13px">(proposés quand on tape les premières lettres)</span></summary>
+      <form id="rosterAdd" class="actions" style="margin-top:12px">
+        <input id="rosterName" maxlength="40" placeholder="Prénom à enregistrer" aria-label="Prénom à enregistrer">
+        <button type="submit">Enregistrer</button>
+      </form>
+      <div id="roster" class="roster"></div>
+    </details>
     <div class="prelev-row">
       <label for="prelev"><span class="ico-prelev" aria-hidden="true"></span> <strong>Prélèvement du jour</strong></label>
       <select id="prelev"></select>
@@ -203,7 +212,7 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
         <tbody id="planBody"></tbody>
       </table>
     </div>
-    <p class="muted" style="margin:0;font-size:13px">Vous pouvez changer une heure dans les listes : elle est alors gardée telle quelle (« modifié ») et le reste se réorganise autour.</p>
+    <p class="muted" style="margin:0;font-size:13px">Vous pouvez changer une heure dans les listes pour affiner la journée. Dès la première retouche, tous les horaires calculés sont figés : rien ne bouge plus tout seul. Seule une personne dont on change l'arrivée ou le départ (ou qu'on ajoute) est recalculée. « Tout recalculer » repart de zéro.</p>
     <div class="legend">
       <span style="--c:var(--work)">Présence</span>
       <span style="--c:var(--break)">Pause 15 min</span>
@@ -238,16 +247,12 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
 
   <section class="panel">
     <details class="rules">
-      <summary>Règles de calcul et équipe habituelle</summary>
+      <summary>Règles de calcul</summary>
       <div class="rules-grid" style="margin-top:16px">
         <label for="storeName">Enseigne / magasin affiché sur le PDF <input id="storeName" maxlength="40" placeholder="ex. nom du magasin"></label>
       </div>
       <div class="rules-grid" id="rulesGrid"></div>
       <div class="actions" style="margin-top:16px"><button id="resetRules" type="button">Rétablir les règles par défaut</button></div>
-      <div style="margin-top:20px">
-        <strong>Équipe habituelle</strong> <span class="muted" style="font-size:13px">(retenue automatiquement avec les derniers horaires saisis)</span>
-        <div id="roster" class="roster"></div>
-      </div>
     </details>
   </section>
 </div>
@@ -380,7 +385,7 @@ function saveDay() {
   for (const p of staff) {
     const n = (p.name || "").trim(); if (!n) continue;
     const r = roster.find(x => x.name.toLowerCase() === n.toLowerCase());
-    if (r) { r.start = p.start; r.end = p.end; r.manager = !!p.manager; } else roster.push({ name: n, start: p.start, end: p.end, manager: !!p.manager });
+    if (r) { r.start = p.start; r.end = p.end; r.manager = !!p.manager; r.zone = p.zone || ""; } else roster.push({ name: n, start: p.start, end: p.end, manager: !!p.manager, zone: p.zone || "" });
   }
   roster.sort((a, b) => a.name.localeCompare(b.name, "fr"));
   store.set("pauses:roster", roster);
@@ -406,6 +411,7 @@ function mealWindow(p, S) {
   const from = Math.max(floorBase, ceilTo(p.s + 60, 30));
   return { from, to: lastByEnd };
 }
+const fixedMeal = p => p.s >= 420 && p.s <= 480 && p.e < 960; // arrivée 7h00–8h00 et départ avant 16h00
 function requiredBreaks(p, S) {
   return p.work >= S.seuil2 ? 2 : p.work >= S.seuil1 ? 1 : 0;
 }
@@ -476,7 +482,7 @@ function validate(p, S, ppl) {
 }
 function computePlan() {
   const S = settings;
-  const ppl = staff.map(p => ({ id: p.id, name: (p.name || "").trim() || "Sans prénom", s: toMin(p.start), e: toMin(p.end), noMeal: !!p.noMeal, manager: !!p.manager }))
+  const ppl = staff.map(p => ({ id: p.id, name: (p.name || "").trim() || "Sans prénom", s: toMin(p.start), e: toMin(p.end), noMeal: !!p.noMeal, manager: !!p.manager, zone: p.zone || "" }))
     .filter(p => isFinite(p.s) && isFinite(p.e) && p.e > p.s);
   if (!ppl.length) return [];
   const minStart = Math.min(...ppl.map(p => p.s));
@@ -493,8 +499,13 @@ function computePlan() {
   }
   // Repas : par ordre d'arrivée, les premières arrivées prennent les premiers créneaux (un départ par demi-heure si possible)
   const byStart = [...ppl].sort((a, b) => (a.s - b.s) || (a.e - b.e) || (b.manager - a.manager));
+  // Règle fixe : ouverture entre 7h et 8h ET fin avant 16h -> repas à 11h30 dans tous les cas
   for (const p of byStart) {
-    if (p.mealPinned || !p.mealDue) continue;
+    if (p.mealPinned || !p.mealDue || !fixedMeal(p)) continue;
+    p.meal = 690; abs.push({ id: p.id, a: p.meal, b: p.meal + 60, k: "m", mgr: p.manager });
+  }
+  for (const p of byStart) {
+    if (p.mealPinned || !p.mealDue || fixedMeal(p)) continue;
     const w = mealWindow(p, S), meals = abs.filter(x => x.k === "m");
     const choose = strictMgr => {
       let best = null;
@@ -540,6 +551,7 @@ function renderStaff() {
       <td><input class="start" id="s-${p.id}" type="time" step="900" value="${esc(p.start || "")}" aria-label="Heure d'arrivée"></td>
       <td><input class="end" id="e-${p.id}" type="time" step="900" value="${esc(p.end || "")}" aria-label="Heure de départ"></td>
       <td><label class="chk"><input type="checkbox" class="mgr" id="g-${p.id}" ${p.manager ? "checked" : ""}> manager</label></td>
+      <td><select class="zone" id="z-${p.id}" aria-label="Zone"><option value="">—</option>${[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(z => `<option value="${z}"${String(p.zone || "") === String(z) ? " selected" : ""}>${z}</option>`).join("")}</select></td>
       <td class="num pres"></td>
       <td class="due"></td>
       <td><label class="chk"><input type="checkbox" class="nomeal" id="m-${p.id}" ${p.noMeal ? "checked" : ""}> sans repas</label></td>
@@ -566,7 +578,7 @@ function renderPlan() {
     : nW ? `${results.length} personnes · ${nW} à vérifier` : `${results.length} personnes · toutes les règles sont respectées`;
   $("#planBody").innerHTML = results.map(r => {
     const sl = slots(r), bOpts = i => opts(ceilTo(r.s, 15), r.e - 15, 15, sl[i]);
-    const pinned = r.mealPinned || r.breaksPinned;
+    const pinned = !!r.ov.edited;
     return `<tr data-id="${r.id}">
       <td><strong>${esc(r.name)}</strong>${r.id === prelev ? " " + PRELEV_ICON : ""}${r.manager ? ' <span class="chip mgr">manager</span>' : ""}${r.opener ? ' <span class="chip">ouverture</span>' : ""}</td>
       <td class="num">${fr(r.s)} – ${fr(r.e)}<br><span class="muted" style="font-size:12px">travail ${fr(r.work)}</span></td>
@@ -643,7 +655,7 @@ function renderTimeline() {
 function renderRoster() {
   const list = roster || [];
   $("#rosterList").innerHTML = list.map(r => `<option value="${esc(r.name)}"></option>`).join("");
-  $("#roster").innerHTML = list.length ? list.map((r, i) => `<span class="chip">${esc(r.name)}${r.manager ? " · manager" : ""} <span class="muted tnum">${r.start || "?"}–${r.end || "?"}</span><button type="button" data-i="${i}" aria-label="Retirer ${esc(r.name)} de l'équipe habituelle">×</button></span>`).join("")
+  $("#roster").innerHTML = list.length ? list.map((r, i) => `<span class="chip">${esc(r.name)}${r.manager ? " · manager" : ""} ${r.start ? `<span class="muted tnum">${r.start}–${r.end || "?"}</span>` : ""}<button type="button" data-i="${i}" aria-label="Retirer ${esc(r.name)} de l'équipe habituelle">×</button></span>`).join("")
     : '<span class="muted">Vide pour l\'instant.</span>';
 }
 function renderRules() {
@@ -703,7 +715,8 @@ function makePDF() {
   // ---- Grille ----
   const legendY = Hp - M, covH = 7, trfH = 0, headH = 8, nameW = 44;
   const top = M + 21;
-  const tlX = M + nameW, tlW = Wp - M - tlX;
+  const zoneW = 16, zoneX = Wp - M - zoneW;
+  const tlX = M + nameW, tlW = zoneX - tlX;
   const T0 = floorTo(Math.min(...rs.map(r => r.s)), 60), T1 = ceilTo(Math.max(...rs.map(r => r.e)), 60);
   const X = t => tlX + (t - T0) / (T1 - T0) * tlW;
   const rh = Math.min(15, (legendY - 6 - covH - trfH - top - headH) / rs.length);
@@ -713,6 +726,7 @@ function makePDF() {
   // Bandeau noir : ÉQUIPE + heures (heures pleines en blanc, demi-heures en gris)
   fill(C.black); doc.rect(M, top, Wp - 2 * M, headH, "F");
   font("bold", 7.5); color(C.white); caps("Équipe", M + 3, top + headH / 2, { baseline: "middle", charSpace: 0.6 });
+  caps("Zone", zoneX + zoneW / 2, top + headH / 2, { baseline: "middle", align: "center", charSpace: 0.6 });
   for (let t = T0; t < T1; t += 30) {
     const cx = (X(t) + X(t + 30)) / 2;
     if (t % 60 === 0) { font("bold", 8); color(C.white); doc.text(t / 60 + ":00", cx, top + headH / 2, { align: "center", baseline: "middle" }); }
@@ -723,6 +737,8 @@ function makePDF() {
     if (t % 60 === 0) { draw(C.g5); doc.setLineWidth(0.25); } else { draw(C.g6); doc.setLineWidth(0.15); }
     doc.line(X(t), top + headH, X(t), gridBottom);
   }
+  // Colonne Zone, séparée par un filet noir
+  draw(C.black); doc.setLineWidth(0.35); doc.line(zoneX, top + headH, zoneX, gridBottom);
 
   // ---- Lignes ----
   rs.forEach((r, i) => {
@@ -737,6 +753,9 @@ function makePDF() {
     doc.text(fit(r.name.toUpperCase(), nameMax), M + 3, two ? yc - rh * 0.13 : yc, { baseline: "middle" });
     if (two) { font("normal", 6); color(C.g2); caps("Manager", M + 3, yc + rh * 0.25, { baseline: "middle", charSpace: 0.5 }); }
 
+    // Zone
+    font("bold", Math.min(12, fs * 1.15)); color(r.zone ? C.black : C.g5);
+    doc.text(r.zone ? String(r.zone) : "-", zoneX + zoneW / 2, yc, { align: "center", baseline: "middle" });
     // Présence
     const bh = Math.max(3, rh * 0.56), by = yc - bh / 2;
     fill(C.g6); doc.roundedRect(X(r.s), by, X(r.e) - X(r.s), bh, 1.2, 1.2, "F");
@@ -816,12 +835,13 @@ $("#staffBody").addEventListener("input", e => {
   if (c.contains("name")) {
     p.name = e.target.value;
     const r = (roster || []).find(x => x.name.toLowerCase() === p.name.trim().toLowerCase());
-    if (r && !p.start && !p.end) { p.start = r.start; p.end = r.end; p.manager = !!r.manager; tr.querySelector(".start").value = r.start || ""; tr.querySelector(".end").value = r.end || ""; tr.querySelector(".mgr").checked = p.manager; }
+    if (r && !p.start && !p.end) { p.start = r.start; p.end = r.end; p.manager = !!r.manager; tr.querySelector(".start").value = r.start || ""; tr.querySelector(".end").value = r.end || ""; tr.querySelector(".mgr").checked = p.manager; p.zone = r.zone || ""; tr.querySelector(".zone").value = p.zone; }
   }
   else if (c.contains("start")) { p.start = e.target.value; delete overrides[p.id]; }
   else if (c.contains("end")) { p.end = e.target.value; delete overrides[p.id]; }
   else if (c.contains("nomeal")) { p.noMeal = e.target.checked; delete overrides[p.id]; }
   else if (c.contains("mgr")) { p.manager = e.target.checked; }
+  else if (c.contains("zone")) { p.zone = e.target.value; }
   if (isExample) { isExample = false; $("#exampleBanner").hidden = true; }
   changed();
 });
@@ -846,7 +866,7 @@ $("#addAll").addEventListener("click", () => {
   let added = 0;
   for (const r of list) {
     if (staff.some(p => (p.name || "").trim().toLowerCase() === r.name.toLowerCase())) continue;
-    staff.push({ id: uid(), name: r.name, start: r.start || "", end: r.end || "", noMeal: false, manager: !!r.manager }); added++;
+    staff.push({ id: uid(), name: r.name, start: r.start || "", end: r.end || "", noMeal: false, manager: !!r.manager, zone: r.zone || "" }); added++;
   }
   renderStaff(); changed(); toast(added ? added + " personne(s) ajoutée(s). Retirez les absentes et corrigez les horaires." : "Toute l'équipe est déjà là.");
 });
@@ -855,7 +875,14 @@ $("#planBody").addEventListener("change", e => {
   const sel = e.target.closest("select"); if (!sel) return;
   const id = sel.closest("tr").dataset.id, r = results.find(x => x.id === id);
   const v = sel.value === "" ? null : +sel.value, f = sel.dataset.f;
-  const ov = overrides[id] = overrides[id] || {};
+  // Première retouche : on fige les horaires calculés de tout le monde, pour qu'ils ne bougent plus
+  for (const x of results) {
+    const o = overrides[x.id] = overrides[x.id] || {};
+    if (o.meal === undefined) o.meal = x.meal;
+    if (o.breaks === undefined) o.breaks = [...x.b];
+  }
+  const ov = overrides[id];
+  ov.edited = true;
   if (f === "meal") ov.meal = v;
   else { const b = slots(r); b[f === "b1" ? 0 : 1] = v; ov.breaks = b.filter(x => x != null); }
   if (isExample) { isExample = false; $("#exampleBanner").hidden = true; }
@@ -896,6 +923,16 @@ $("#prelev").addEventListener("change", e => {
   prelev = e.target.value;
   if (isExample) { isExample = false; $("#exampleBanner").hidden = true; }
   changed();
+});
+$("#rosterAdd").addEventListener("submit", e => {
+  e.preventDefault();
+  const n = $("#rosterName").value.trim(); if (!n) return;
+  roster = roster || [];
+  if (roster.some(x => x.name.toLowerCase() === n.toLowerCase())) { toast(n + " est déjà enregistrée."); return; }
+  roster.push({ name: n, start: "", end: "", manager: false, zone: "" });
+  roster.sort((a, b) => a.name.localeCompare(b.name, "fr"));
+  store.set("pauses:roster", roster); renderRoster();
+  $("#rosterName").value = ""; $("#rosterName").focus();
 });
 $("#roster").addEventListener("click", e => {
   const i = e.target.dataset.i; if (i === undefined) return;
