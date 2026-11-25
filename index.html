@@ -136,6 +136,14 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
 .rules-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px 24px; margin-top: 16px; }
 .rules-grid label { display: flex; justify-content: space-between; align-items: center; gap: 12px; font-size: 14px; }
 details.roster-box summary { cursor: pointer; font-weight: 500; }
+.roster-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; margin-top: 12px; }
+.roster-form textarea { font: 15px var(--font-body); color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px; width: min(420px, 100%); resize: vertical; }
+.name-wrap { display: flex; gap: 4px; align-items: center; }
+.name-btn { padding: 6px 8px; line-height: 1; color: var(--muted); }
+#nameMenu { position: absolute; z-index: 50; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.14); max-height: 280px; overflow-y: auto; padding: 4px 0; }
+#nameMenu button { display: flex; justify-content: space-between; gap: 16px; width: 100%; text-align: left; border: 0; border-radius: 0; padding: 8px 12px; font-weight: 500; }
+#nameMenu button.active, #nameMenu button:hover { background: var(--work); }
+#nameMenu .muted { font-weight: 400; font-size: 12px; font-variant-numeric: tabular-nums; }
 .roster { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .roster .chip { display: inline-flex; align-items: center; gap: 4px; padding-right: 2px; }
 .roster .chip button { border: 0; padding: 2px 6px; font-size: 12px; color: var(--muted); }
@@ -181,9 +189,9 @@ details.roster-box summary { cursor: pointer; font-weight: 500; }
     <div class="actions"><button id="addOne" type="button" class="primary">+ Ajouter une personne</button></div>
     <details class="roster-box">
       <summary>Prénoms enregistrés <span class="muted" style="font-size:13px">(proposés quand on tape les premières lettres)</span></summary>
-      <form id="rosterAdd" class="actions" style="margin-top:12px">
-        <input id="rosterName" maxlength="40" placeholder="Prénom à enregistrer" aria-label="Prénom à enregistrer">
-        <button type="submit">Enregistrer</button>
+      <form id="rosterAdd" class="roster-form">
+        <textarea id="rosterName" rows="4" placeholder="Tapez ou collez la liste de l'équipe : un prénom par ligne (ou séparés par des virgules)" aria-label="Prénoms à enregistrer"></textarea>
+        <button type="submit">Enregistrer la liste</button>
       </form>
       <div id="roster" class="roster"></div>
     </details>
@@ -257,6 +265,7 @@ details.roster-box summary { cursor: pointer; font-weight: 500; }
   </section>
 </div>
 <div id="toast" hidden></div>
+<div id="nameMenu" role="listbox" hidden></div>
 
 <script>
 "use strict";
@@ -385,7 +394,9 @@ function saveDay() {
   for (const p of staff) {
     const n = (p.name || "").trim(); if (!n) continue;
     const r = roster.find(x => x.name.toLowerCase() === n.toLowerCase());
-    if (r) { r.start = p.start; r.end = p.end; r.manager = !!p.manager; r.zone = p.zone || ""; } else roster.push({ name: n, start: p.start, end: p.end, manager: !!p.manager, zone: p.zone || "" });
+    // On met seulement à jour les prénoms déjà connus : un prénom nouveau n'est ajouté
+    // qu'une fois la saisie terminée (événement « change »), jamais lettre par lettre.
+    if (r) { r.start = p.start; r.end = p.end; r.manager = !!p.manager; r.zone = p.zone || ""; }
   }
   roster.sort((a, b) => a.name.localeCompare(b.name, "fr"));
   store.set("pauses:roster", roster);
@@ -547,7 +558,7 @@ function renderStaff() {
   $("#staffEmpty").hidden = staff.length > 0;
   $("#staffBody").innerHTML = staff.map(p => `
     <tr data-id="${p.id}">
-      <td><input class="name" id="n-${p.id}" list="rosterList" value="${esc(p.name || "")}" placeholder="Prénom" aria-label="Prénom"></td>
+      <td><div class="name-wrap"><input class="name" id="n-${p.id}" autocomplete="off" value="${esc(p.name || "")}" placeholder="Prénom" aria-label="Prénom"><button type="button" class="name-btn" tabindex="-1" aria-label="Choisir dans la liste des prénoms">▾</button></div></td>
       <td><input class="start" id="s-${p.id}" type="time" step="900" value="${esc(p.start || "")}" aria-label="Heure d'arrivée"></td>
       <td><input class="end" id="e-${p.id}" type="time" step="900" value="${esc(p.end || "")}" aria-label="Heure de départ"></td>
       <td><label class="chk"><input type="checkbox" class="mgr" id="g-${p.id}" ${p.manager ? "checked" : ""}> manager</label></td>
@@ -926,14 +937,86 @@ $("#prelev").addEventListener("change", e => {
 });
 $("#rosterAdd").addEventListener("submit", e => {
   e.preventDefault();
-  const n = $("#rosterName").value.trim(); if (!n) return;
+  const names = $("#rosterName").value.split(/[\n,;]+/).map(s => s.trim()).filter(Boolean);
+  if (!names.length) return;
   roster = roster || [];
-  if (roster.some(x => x.name.toLowerCase() === n.toLowerCase())) { toast(n + " est déjà enregistrée."); return; }
-  roster.push({ name: n, start: "", end: "", manager: false, zone: "" });
+  let added = 0;
+  for (const n of names) {
+    if (roster.some(x => norm(x.name) === norm(n))) continue;
+    roster.push({ name: n, start: "", end: "", manager: false, zone: "" }); added++;
+  }
   roster.sort((a, b) => a.name.localeCompare(b.name, "fr"));
   store.set("pauses:roster", roster); renderRoster();
-  $("#rosterName").value = ""; $("#rosterName").focus();
+  $("#rosterName").value = "";
+  toast(added ? added + " prénom(s) enregistré(s)." : "Ces prénoms étaient déjà enregistrés.");
 });
+
+/* ---------- liste déroulante des prénoms ---------- */
+const norm = s => (s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+let menuFor = null, picking = false;
+const nameMenu = $("#nameMenu");
+function closeNameMenu() { nameMenu.hidden = true; menuFor = null; }
+function openNameMenu(input, all) {
+  const q = all ? "" : norm(input.value);
+  const id = input.closest("tr").dataset.id;
+  const used = new Set(staff.filter(p => p.id !== id).map(p => norm(p.name)).filter(Boolean));
+  const list = (roster || []).filter(r => !used.has(norm(r.name)) && norm(r.name).startsWith(q));
+  if (!list.length || (!all && list.length === 1 && norm(list[0].name) === q)) { closeNameMenu(); return; }
+  nameMenu.innerHTML = list.map((r, i) => `<button type="button" tabindex="-1" data-name="${esc(r.name)}"${i === 0 ? ' class="active"' : ""}><span>${esc(r.name)}</span>${r.start ? `<span class="muted">${esc(r.start)}–${esc(r.end || "?")}</span>` : ""}</button>`).join("");
+  const rc = input.getBoundingClientRect();
+  nameMenu.style.left = (rc.left + scrollX) + "px";
+  nameMenu.style.top = (rc.bottom + scrollY + 4) + "px";
+  nameMenu.style.minWidth = Math.max(rc.width + 40, 200) + "px";
+  nameMenu.hidden = false; menuFor = input;
+}
+function pickName(name) {
+  const input = menuFor; closeNameMenu(); if (!input) return;
+  input.value = name; picking = true;
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+  picking = false;
+  input.closest("tr").querySelector(".start").focus();
+}
+function rememberName(p) {
+  const n = (p.name || "").trim(); if (!n) return;
+  roster = roster || [];
+  if (!roster.some(x => norm(x.name) === norm(n))) {
+    roster.push({ name: n, start: p.start || "", end: p.end || "", manager: !!p.manager, zone: p.zone || "" });
+    roster.sort((a, b) => a.name.localeCompare(b.name, "fr"));
+    store.set("pauses:roster", roster); renderRoster();
+  }
+}
+$("#staffBody").addEventListener("change", e => {
+  if (!e.target.classList.contains("name")) return;
+  const p = staff.find(x => x.id === e.target.closest("tr").dataset.id);
+  if (p) { rememberName(p); saveDay(); }
+});
+// Nettoyage unique : retire les prénoms partiels (« C », « Ch »…) enregistrés lettre par lettre par l'ancienne version
+if (roster && !store.get("pauses:rosterClean1", false)) {
+  const keep = roster.filter(r => r.start || !roster.some(o => o !== r && norm(o.name).length > norm(r.name).length && norm(o.name).startsWith(norm(r.name))));
+  if (keep.length !== roster.length) { roster = keep; store.set("pauses:roster", roster); }
+  store.set("pauses:rosterClean1", true);
+}
+nameMenu.addEventListener("mousedown", e => { e.preventDefault(); const b = e.target.closest("button"); if (b) pickName(b.dataset.name); });
+$("#staffBody").addEventListener("focusin", e => { if (e.target.classList.contains("name")) openNameMenu(e.target, false); });
+$("#staffBody").addEventListener("focusout", e => { if (e.target.classList.contains("name")) setTimeout(() => { if (document.activeElement !== menuFor) closeNameMenu(); }, 120); });
+$("#staffBody").addEventListener("input", e => { if (e.target.classList.contains("name") && !picking) openNameMenu(e.target, false); });
+$("#staffBody").addEventListener("click", e => {
+  const b = e.target.closest(".name-btn"); if (!b) return;
+  const input = b.closest("tr").querySelector(".name");
+  if (menuFor === input) { closeNameMenu(); return; }
+  input.focus(); openNameMenu(input, true);
+});
+$("#staffBody").addEventListener("keydown", e => {
+  if (!e.target.classList.contains("name") || nameMenu.hidden) return;
+  const items = [...nameMenu.querySelectorAll("button")], i = items.findIndex(b => b.classList.contains("active"));
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault();
+    const j = (i + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+    items.forEach((b, k) => b.classList.toggle("active", k === j)); items[j].scrollIntoView({ block: "nearest" });
+  } else if (e.key === "Enter" && i >= 0) { e.preventDefault(); pickName(items[i].dataset.name); }
+  else if (e.key === "Escape") closeNameMenu();
+});
+addEventListener("resize", closeNameMenu);
 $("#roster").addEventListener("click", e => {
   const i = e.target.dataset.i; if (i === undefined) return;
   roster.splice(+i, 1); store.set("pauses:roster", roster); renderRoster();
