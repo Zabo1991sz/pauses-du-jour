@@ -136,6 +136,7 @@ details.rules summary { cursor: pointer; font-family: var(--font-display); font-
 .rules-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px 24px; margin-top: 16px; }
 .rules-grid label { display: flex; justify-content: space-between; align-items: center; gap: 12px; font-size: 14px; }
 details.roster-box summary { cursor: pointer; font-weight: 500; }
+button.danger { background: var(--warn); border-color: var(--warn); color: #fff; font-weight: 700; }
 .roster-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; margin-top: 12px; }
 .roster-form textarea { font: 15px var(--font-body); color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px; width: min(420px, 100%); resize: vertical; }
 .name-wrap { display: flex; gap: 4px; align-items: center; }
@@ -194,6 +195,10 @@ details.roster-box summary { cursor: pointer; font-weight: 500; }
         <button type="submit">Enregistrer la liste</button>
       </form>
       <div id="roster" class="roster"></div>
+      <div class="actions" style="margin-top:12px">
+        <button type="button" id="rosterClean">Retirer les prénoms incomplets</button>
+        <button type="button" id="rosterClear">Tout effacer</button>
+      </div>
     </details>
     <div class="prelev-row">
       <label for="prelev"><span class="ico-prelev" aria-hidden="true"></span> <strong>Prélèvement du jour</strong></label>
@@ -990,12 +995,30 @@ $("#staffBody").addEventListener("change", e => {
   const p = staff.find(x => x.id === e.target.closest("tr").dataset.id);
   if (p) { rememberName(p); saveDay(); }
 });
-// Nettoyage unique : retire les prénoms partiels (« C », « Ch »…) enregistrés lettre par lettre par l'ancienne version
-if (roster && !store.get("pauses:rosterClean1", false)) {
-  const keep = roster.filter(r => r.start || !roster.some(o => o !== r && norm(o.name).length > norm(r.name).length && norm(o.name).startsWith(norm(r.name))));
-  if (keep.length !== roster.length) { roster = keep; store.set("pauses:roster", roster); }
-  store.set("pauses:rosterClean1", true);
+// Retire les prénoms incomplets : ceux qui sont le début d'un autre prénom enregistré (« ISA » devant « ISABELLE »)
+function cleanPartialNames() {
+  if (!roster) return 0;
+  const keep = roster.filter(r => !roster.some(o => o !== r && norm(o.name).length > norm(r.name).length && norm(o.name).startsWith(norm(r.name))));
+  const removed = roster.length - keep.length;
+  if (removed) { roster = keep; store.set("pauses:roster", roster); }
+  return removed;
 }
+if (roster && !store.get("pauses:rosterClean2", false)) { cleanPartialNames(); store.set("pauses:rosterClean2", true); }
+$("#rosterClean").addEventListener("click", () => {
+  const n = cleanPartialNames(); renderRoster();
+  toast(n ? n + " prénom(s) incomplet(s) retiré(s)." : "Aucun prénom incomplet à retirer.");
+});
+$("#rosterClear").addEventListener("click", e => {
+  const b = e.currentTarget;
+  if (!b.dataset.armed) { // premier clic : demande de confirmation dans le bouton lui-même
+    b.dataset.armed = "1"; b.textContent = "Confirmer : effacer les " + (roster || []).length + " prénoms ?"; b.classList.add("danger");
+    setTimeout(() => { delete b.dataset.armed; b.textContent = "Tout effacer"; b.classList.remove("danger"); }, 4000);
+    return;
+  }
+  roster = []; store.set("pauses:roster", roster); renderRoster();
+  delete b.dataset.armed; b.textContent = "Tout effacer"; b.classList.remove("danger");
+  toast("Liste des prénoms vidée. Collez la liste de l'équipe ci-dessus.");
+});
 nameMenu.addEventListener("mousedown", e => { e.preventDefault(); const b = e.target.closest("button"); if (b) pickName(b.dataset.name); });
 $("#staffBody").addEventListener("focusin", e => { if (e.target.classList.contains("name")) openNameMenu(e.target, false); });
 $("#staffBody").addEventListener("focusout", e => { if (e.target.classList.contains("name")) setTimeout(() => { if (document.activeElement !== menuFor) closeNameMenu(); }, 120); });
