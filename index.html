@@ -328,6 +328,7 @@ const RULES_UI = [
 /* ---------- état ---------- */
 let settings = Object.assign({}, DEFAULTS, store.get("pauses:settings", {}));
 let roster = store.get("pauses:roster", null);
+if (roster) roster = roster.map(r => ({ name: r.name })); // prénoms seulement : on oublie les anciens horaires enregistrés
 let day = todayISO();
 let staff = [], overrides = {}, tasks = [], prelev = "", traffic = {}, isExample = false, results = [];
 let storeName = store.get("pauses:store", "");
@@ -395,17 +396,10 @@ function loadDay() {
 function saveDay() {
   if (isExample) return;
   store.set("pauses:day:" + day, { staff, overrides, tasks, prelev, traffic });
+  // La liste des prénoms enregistrés ne garde que les prénoms (aucun horaire) :
+  // un prénom nouveau est ajouté une fois la saisie terminée (événement « change »).
   roster = roster || [];
-  for (const p of staff) {
-    const n = (p.name || "").trim(); if (!n) continue;
-    const r = roster.find(x => x.name.toLowerCase() === n.toLowerCase());
-    // On met seulement à jour les prénoms déjà connus : un prénom nouveau n'est ajouté
-    // qu'une fois la saisie terminée (événement « change »), jamais lettre par lettre.
-    if (r) { r.start = p.start; r.end = p.end; r.manager = !!p.manager; r.zone = p.zone || ""; }
-  }
-  roster.sort((a, b) => a.name.localeCompare(b.name, "fr"));
   store.set("pauses:roster", roster);
-  renderRoster();
 }
 
 /* ---------- calcul ---------- */
@@ -671,7 +665,7 @@ function renderTimeline() {
 function renderRoster() {
   const list = roster || [];
   $("#rosterList").innerHTML = list.map(r => `<option value="${esc(r.name)}"></option>`).join("");
-  $("#roster").innerHTML = list.length ? list.map((r, i) => `<span class="chip">${esc(r.name)}${r.manager ? " · manager" : ""} ${r.start ? `<span class="muted tnum">${r.start}–${r.end || "?"}</span>` : ""}<button type="button" data-i="${i}" aria-label="Retirer ${esc(r.name)} de l'équipe habituelle">×</button></span>`).join("")
+  $("#roster").innerHTML = list.length ? list.map((r, i) => `<span class="chip">${esc(r.name)} <button type="button" data-i="${i}" aria-label="Retirer ${esc(r.name)} de l'équipe habituelle">×</button></span>`).join("")
     : '<span class="muted">Vide pour l\'instant.</span>';
 }
 function renderRules() {
@@ -850,8 +844,6 @@ $("#staffBody").addEventListener("input", e => {
   const p = staff.find(x => x.id === tr.dataset.id), c = e.target.classList;
   if (c.contains("name")) {
     p.name = e.target.value;
-    const r = (roster || []).find(x => x.name.toLowerCase() === p.name.trim().toLowerCase());
-    if (r && !p.start && !p.end) { p.start = r.start; p.end = r.end; p.manager = !!r.manager; tr.querySelector(".start").value = r.start || ""; tr.querySelector(".end").value = r.end || ""; tr.querySelector(".mgr").checked = p.manager; p.zone = r.zone || ""; tr.querySelector(".zone").value = p.zone; }
   }
   else if (c.contains("start")) { p.start = e.target.value; delete overrides[p.id]; }
   else if (c.contains("end")) { p.end = e.target.value; delete overrides[p.id]; }
@@ -882,9 +874,9 @@ $("#addAll").addEventListener("click", () => {
   let added = 0;
   for (const r of list) {
     if (staff.some(p => (p.name || "").trim().toLowerCase() === r.name.toLowerCase())) continue;
-    staff.push({ id: uid(), name: r.name, start: r.start || "", end: r.end || "", noMeal: false, manager: !!r.manager, zone: r.zone || "" }); added++;
+    staff.push({ id: uid(), name: r.name, start: "", end: "", noMeal: false, manager: false, zone: "" }); added++;
   }
-  renderStaff(); changed(); toast(added ? added + " personne(s) ajoutée(s). Retirez les absentes et corrigez les horaires." : "Toute l'équipe est déjà là.");
+  renderStaff(); changed(); toast(added ? added + " personne(s) ajoutée(s). Retirez les absentes et indiquez les horaires." : "Toute l'équipe est déjà là.");
 });
 $("#clearExample").addEventListener("click", () => { staff = []; overrides = {}; tasks = []; isExample = false; roster = roster || []; store.set("pauses:roster", roster); renderStaff(); changed(); });
 $("#planBody").addEventListener("change", e => {
@@ -948,7 +940,7 @@ $("#rosterAdd").addEventListener("submit", e => {
   let added = 0;
   for (const n of names) {
     if (roster.some(x => norm(x.name) === norm(n))) continue;
-    roster.push({ name: n, start: "", end: "", manager: false, zone: "" }); added++;
+    roster.push({ name: n }); added++;
   }
   roster.sort((a, b) => a.name.localeCompare(b.name, "fr"));
   store.set("pauses:roster", roster); renderRoster();
@@ -967,7 +959,7 @@ function openNameMenu(input, all) {
   const used = new Set(staff.filter(p => p.id !== id).map(p => norm(p.name)).filter(Boolean));
   const list = (roster || []).filter(r => !used.has(norm(r.name)) && norm(r.name).startsWith(q));
   if (!list.length || (!all && list.length === 1 && norm(list[0].name) === q)) { closeNameMenu(); return; }
-  nameMenu.innerHTML = list.map((r, i) => `<button type="button" tabindex="-1" data-name="${esc(r.name)}"${i === 0 ? ' class="active"' : ""}><span>${esc(r.name)}</span>${r.start ? `<span class="muted">${esc(r.start)}–${esc(r.end || "?")}</span>` : ""}</button>`).join("");
+  nameMenu.innerHTML = list.map((r, i) => `<button type="button" tabindex="-1" data-name="${esc(r.name)}"${i === 0 ? ' class="active"' : ""}><span>${esc(r.name)}</span></button>`).join("");
   const rc = input.getBoundingClientRect();
   nameMenu.style.left = (rc.left + scrollX) + "px";
   nameMenu.style.top = (rc.bottom + scrollY + 4) + "px";
@@ -985,7 +977,7 @@ function rememberName(p) {
   const n = (p.name || "").trim(); if (!n) return;
   roster = roster || [];
   if (!roster.some(x => norm(x.name) === norm(n))) {
-    roster.push({ name: n, start: p.start || "", end: p.end || "", manager: !!p.manager, zone: p.zone || "" });
+    roster.push({ name: n });
     roster.sort((a, b) => a.name.localeCompare(b.name, "fr"));
     store.set("pauses:roster", roster); renderRoster();
   }
